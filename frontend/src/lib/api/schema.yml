@@ -1,0 +1,83 @@
+openapi: 3.0.3
+info:
+  title: Event-driven e-commerce API
+  version: 0.1.0
+  description: E-commerce platform seeded with the Olist Brazilian E-Commerce dataset.
+paths:
+  /api/health/:
+    get:
+      operationId: health_retrieve
+      summary: Status of the database and Redis
+      tags:
+      - health
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+          description: ''
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+          description: ''
+  /api/stats/:
+    get:
+      operationId: stats_retrieve
+      summary: Row counts for the dashboard
+      tags:
+      - stats
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stats'
+          description: ''
+components:
+  schemas:
+    Health:
+      type: object
+      properties:
+        status:
+          allOf:
+          - $ref: '#/components/schemas/HealthStatusEnum'
+          description: |-
+            'ok' only if every dependency is ok
+
+            * `ok` - ok
+            * `error` - error
+        db:
+          $ref: '#/components/schemas/HealthStatusEnum'
+        redis:
+          $ref: '#/components/schemas/HealthStatusEnum'
+      required:
+      - db
+      - redis
+      - status
+    HealthStatusEnum:
+      enum:
+      - ok
+      - error
+      type: string
+      description: |-
+        * `ok` - ok
+        * `error` - error
+    Stats:
+      type: object
+      properties:
+        products:
+          type: integer
+        orders:
+          type: integer
+        customers:
+          type: integer
+        sellers:
+          type: integer
+      required:
+      - customers
+      - orders
+      - products
+      - sellers
