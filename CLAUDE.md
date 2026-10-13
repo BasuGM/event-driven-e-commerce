@@ -7,10 +7,12 @@ real Olist Brazilian E-Commerce dataset so there is realistic data from day one.
 
 - **Backend:** Django (latest stable) + Django REST Framework, drf-spectacular for OpenAPI
 - **Database:** PostgreSQL
-- **Queue / events:** Redis (Celery broker now; Redis Streams for events in a later step)
+- **Queue / events:** Redis — used for health checks today; Celery (broker) is added in the step
+  that first needs background work, and Redis Streams for events in a later step
 - **Frontend:** Next.js (latest stable, App Router) + TypeScript + Tailwind + shadcn/ui (lucide-react
-  icons, next-themes for dark mode, TanStack Table for data tables, Recharts via shadcn's chart
-  component for charts)
+  icons, next-themes for dark mode). TanStack Table (data tables), Recharts via shadcn's chart
+  component (charts), react-hook-form and zod (forms) are added with the first feature that
+  uses them
 - **Types across the boundary:** OpenAPI schema → `openapi-typescript` generated client
 - **Tests:** pytest + pytest-django (backend), Vitest (frontend unit), Playwright (later)
 - **Local dev:** Docker Compose; everything starts with one command
@@ -36,9 +38,10 @@ data/snapshots/ Postgres dumps of a seeded DB (gitignored)
 docker-compose.yml
 Makefile
 CLAUDE.md
+README.md       Setup guide for a fresh clone
 ```
 
-Configuration lives in `.env` (copy `.env.example`). Host ports are configurable
+Configuration lives in `.env` (copy `.env.example`; every `make` target refuses to run without it). Host ports are configurable
 (`DB_HOST_PORT`, `REDIS_HOST_PORT`, `BACKEND_HOST_PORT`, `FRONTEND_HOST_PORT`) in case they clash
 with other local services; containers always talk to each other on the default ports.
 
@@ -46,6 +49,7 @@ with other local services; containers always talk to each other on the default p
 
 | Command           | What it does                                              |
 |-------------------|-----------------------------------------------------------|
+| `cp .env.example .env` | First run only: create local config                  |
 | `make up`         | Start all services                                        |
 | `make down`       | Stop all services                                         |
 | `make reset`      | Drop DB, migrate, seed (small) — clean slate in one step  |
@@ -54,11 +58,20 @@ with other local services; containers always talk to each other on the default p
 | `make snapshot`   | Dump the current DB to `data/snapshots/`                  |
 | `make restore`    | Restore the latest snapshot (skip slow CSV parsing)       |
 | `make test`       | Run backend and frontend tests                            |
+| `make test-backend`  | Run only the backend tests (pytest)                    |
+| `make test-frontend` | Run only the frontend tests (Vitest)                   |
 | `make types`      | Regenerate OpenAPI schema and the TS client               |
 | `make migrate`    | Apply migrations                                          |
 
 Under the hood: `python manage.py import_olist --size small|large [--data-dir DIR]` and
 `python manage.py seed_dev_users` (refuses to run unless settings set `ALLOW_DEV_SEED`).
+
+## Settings
+
+- `config/settings/base.py` holds shared settings; `dev.py` is used by the running stack
+  (`DJANGO_SETTINGS_MODULE` in `.env`).
+- Tests always run with `config.settings.test`: `pytest.ini` passes `--ds`, which overrides the
+  `.env` value (a test asserts this).
 
 ## Data rules (important)
 
@@ -117,6 +130,13 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   project to learn the backend side deeply.
 - Keep dependencies minimal; ask before adding a new major library.
 - Update this file when commands, layout or conventions change.
+
+## Known issues
+
+- `npm audit` reports high-severity findings via the `shadcn` package (`braces` / `fast-glob`
+  glob handling). `shadcn` is a runtime dependency only so `globals.css` can import
+  `shadcn/tailwind.css`; the vulnerable code is CLI dev tooling and is not shipped to the browser.
+  **Never run `npm audit fix --force`** — it "fixes" this by downgrading shadcn to 1.x.
 
 ## Out of scope (for now)
 

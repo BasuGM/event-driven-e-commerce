@@ -13,7 +13,7 @@ export const api = createClient<paths>({
   baseUrl: process.env.API_URL ?? "http://localhost:8000",
 })
 
-const TIMEOUT_MS = 5000
+export const TIMEOUT_MS = 5000
 
 export async function getStats(): Promise<Stats> {
   const { data, error } = await api.GET("/api/stats/", {

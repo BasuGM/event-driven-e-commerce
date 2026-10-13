@@ -2,41 +2,45 @@ COMPOSE := docker compose
 BACKEND := $(COMPOSE) exec backend
 FRONTEND := $(COMPOSE) exec frontend
 DB := $(COMPOSE) exec -T db
-# Read DB credentials from .env so the Makefile and containers agree
-include .env
+# Read DB credentials from .env so the Makefile and containers agree.
+# "-include" tolerates a missing file; require-env then fails with a helpful message.
+-include .env
 export
 
-.PHONY: up down reset migrate seed seed-large snapshot restore test test-backend test-frontend types
+.PHONY: require-env up down reset migrate seed seed-large snapshot restore test test-backend test-frontend types
 
-up:
+require-env:
+	@test -f .env || { echo "Missing .env. Run: cp .env.example .env"; exit 1; }
+
+up: require-env
 	$(COMPOSE) up -d --build --wait
 
-down:
+down: require-env
 	$(COMPOSE) down
 
-reset:
+reset: require-env
 	$(DB) psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -v ON_ERROR_STOP=1 \
 		-c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
 	$(MAKE) migrate
 	$(MAKE) seed
 
-migrate:
+migrate: require-env
 	$(BACKEND) python manage.py migrate --noinput
 
-seed:
+seed: require-env
 	$(BACKEND) python manage.py import_olist --size small
 	$(BACKEND) python manage.py seed_dev_users
 
-seed-large:
+seed-large: require-env
 	$(BACKEND) python manage.py import_olist --size large
 	$(BACKEND) python manage.py seed_dev_users
 
-snapshot:
+snapshot: require-env
 	$(DB) pg_dump -U $(POSTGRES_USER) -d $(POSTGRES_DB) -Fc \
 		-f /snapshots/$(POSTGRES_DB)-$$(date +%Y%m%d-%H%M%S).dump
 	@ls -1t data/snapshots/*.dump | head -1
 
-restore:
+restore: require-env
 	@latest=$$(ls -1t data/snapshots/*.dump 2>/dev/null | head -1); \
 	if [ -z "$$latest" ]; then echo "No snapshot in data/snapshots/ — run 'make snapshot' first."; exit 1; fi; \
 	echo "Restoring $$latest"; \
@@ -45,12 +49,12 @@ restore:
 
 test: test-backend test-frontend
 
-test-backend:
+test-backend: require-env
 	$(BACKEND) pytest
 
-test-frontend:
+test-frontend: require-env
 	$(FRONTEND) npm run test
 
-types:
+types: require-env
 	$(COMPOSE) exec -T backend python manage.py spectacular --validate > frontend/src/lib/api/schema.yml
 	$(FRONTEND) npm run types

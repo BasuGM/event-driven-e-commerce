@@ -487,7 +487,8 @@ class OlistImporter:
                 self._flush(result, spec, batch)
             result.total = manager.count()
         result.created = result.total - before
-        self._progress(result, done=True)
+        if result.processed == 0:
+            self._progress(result)  # no batches ran, so nothing was printed yet
         self.results.append(result)
 
     def _flush(self, result: TableResult, spec: TableSpec, batch: list[models.Model]) -> None:
@@ -507,11 +508,11 @@ class OlistImporter:
         elif result.skipped[reason] == MAX_LOGGED_PER_REASON + 1:
             logger.warning("Further '%s' rows in %s are counted, not logged", reason, result.name)
 
-    def _progress(self, result: TableResult, done: bool = False) -> None:
+    def _progress(self, result: TableResult) -> None:
+        """One line per batch; the last batch's line doubles as the table's final count."""
         if self.stdout is None:
             return
-        line = f"  {result.name:<12} {result.processed:>9,} rows written"
-        self.stdout.write(line + ("\n" if done else "\r"))
+        self.stdout.write(f"  {result.name:<12} {result.processed:>9,} rows written\n")
         self.stdout.flush()
 
     def _say(self, message: str) -> None:

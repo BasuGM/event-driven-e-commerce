@@ -170,3 +170,14 @@ def test_missing_files_fail_with_download_hint(olist_dir, tmp_path):
     assert "Brazilian E-Commerce Public Dataset by Olist" in message
     assert "kaggle.com" in message
     assert Order.objects.count() == 0
+
+
+def test_progress_prints_one_line_per_batch_and_final_count_once(olist_dir):
+    out = StringIO()
+    OlistImporter(olist_dir, "large", batch_size=2, stdout=out).run()
+
+    progress = [line.split() for line in out.getvalue().splitlines() if "rows written" in line]
+    orders = [words[1] for words in progress if words[0] == "orders"]
+    # 5 orders in batches of 2: one line per batch, the final count exactly once
+    assert orders == ["2", "4", "5"]
+    assert "\r" not in out.getvalue()
