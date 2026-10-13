@@ -1,4 +1,8 @@
+"use client"
+
 import Link from "next/link"
+import { usePathname } from "next/navigation"
+import { Suspense } from "react"
 
 import { cn } from "@/lib/utils"
 
@@ -22,10 +26,33 @@ export function NavLink({ item, className }: { item: NavItem; className?: string
       </span>
     )
   }
+
+  if (item.external) return <ItemLink item={item} active={false} className={className} />
+  // The active state needs the URL (runtime data). Suspense lets the header prerender as part of
+  // the static shell with an inactive link, then stream in the active state.
+  return (
+    <Suspense fallback={<ItemLink item={item} active={false} className={className} />}>
+      <ActiveAwareLink item={item} className={className} />
+    </Suspense>
+  )
+}
+
+function ActiveAwareLink({ item, className }: { item: NavItem; className?: string }) {
+  const pathname = usePathname()
+  const active = pathname === item.href || pathname.startsWith(`${item.href}/`)
+  return <ItemLink item={item} active={active} className={className} />
+}
+
+function ItemLink({ item, active, className }: { item: NavItem; active: boolean; className?: string }) {
   return (
     <Link
       href={item.href}
-      className={cn(base, "text-muted-foreground hover:bg-accent hover:text-foreground", className)}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        base,
+        active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+        className,
+      )}
       {...(item.external ? { target: "_blank", rel: "noreferrer" } : {})}
     >
       {item.label}

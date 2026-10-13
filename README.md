@@ -25,14 +25,19 @@ make up                # build and start db, redis, backend, frontend
 make reset             # create the schema, import ~2,000 orders, create dev users
 ```
 
-`make seed-large` imports the full dataset (~1 minute). `make test` runs all tests. See
-`CLAUDE.md` for the full command list and project conventions.
+`make seed-large` imports the full dataset (~1 minute). `make test` runs the backend and
+frontend tests plus a typecheck; `make e2e` runs the Playwright smoke test against the running
+stack. See `CLAUDE.md` for the full command list and project conventions.
+
+Olist has no product names, prices or stock, so the import generates them deterministically
+(see "Data rules" in `CLAUDE.md`).
 
 ## URLs (default ports)
 
 | What              | URL                              |
 |-------------------|----------------------------------|
 | Dashboard         | http://localhost:3000            |
+| Shop              | http://localhost:3000/shop       |
 | API docs (Swagger)| http://localhost:8000/api/docs/  |
 | Django admin      | http://localhost:8000/admin/     |
 

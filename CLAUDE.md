@@ -14,7 +14,8 @@ real Olist Brazilian E-Commerce dataset so there is realistic data from day one.
   component (charts), react-hook-form and zod (forms) are added with the first feature that
   uses them
 - **Types across the boundary:** OpenAPI schema → `openapi-typescript` generated client
-- **Tests:** pytest + pytest-django (backend), Vitest (frontend unit), Playwright (later)
+- **Tests:** pytest + pytest-django (backend), Vitest (frontend unit), Playwright (e2e smoke, in
+  its own Docker image via `make e2e`)
 - **Local dev:** Docker Compose; everything starts with one command
 
 ## Repo layout
@@ -24,15 +25,19 @@ backend/
   config/settings/  base.py, dev.py, test.py (DJANGO_SETTINGS_MODULE picks one)
   apps/accounts/    custom User model (AUTH_USER_MODEL = accounts.User)
   apps/core/        health + stats endpoints, Olist importer, management commands
-  apps/catalog/     Category, Product, Seller
+  apps/catalog/     Category, Product, Seller, Offer; catalog API; enrichment.py (generated
+                    names/slugs/descriptions), stats.py (set-based SQL for offers + product stats)
   apps/customers/   Customer
   apps/orders/      Order, OrderItem, Payment, Review
   tests/            pytest suite; tests/fixtures/olist/ = tiny CSVs incl. messy rows
 frontend/src/
   app/              App Router pages (+ loading.tsx / error.tsx per data view)
   components/ui/    shadcn primitives (CLI-managed)
-  components/<feature>/  feature components (layout/, dashboard/, ...)
-  lib/api/          schema.yml + generated schema.d.ts (make types) and typed client.ts
+  components/<feature>/  feature components (layout/, dashboard/, shop/, ...)
+  lib/api/          schema.yml + generated schema.d.ts (make types), typed client.ts,
+                    catalog.ts (catalog fetchers incl. the cached getProduct)
+  lib/shop-params.ts  URL search params <-> shop filters (the only translation layer)
+frontend/e2e/       Playwright smoke tests (run.sh is the e2e container entry point)
 data/olist/     Raw Olist CSVs, directly in this folder (gitignored, never committed)
 data/snapshots/ Postgres dumps of a seeded DB (gitignored)
 docker-compose.yml
@@ -57,9 +62,11 @@ with other local services; containers always talk to each other on the default p
 | `make seed-large` | Import the full Olist dataset                             |
 | `make snapshot`   | Dump the current DB to `data/snapshots/`                  |
 | `make restore`    | Restore the latest snapshot (skip slow CSV parsing)       |
-| `make test`       | Run backend and frontend tests                            |
+| `make test`       | Backend tests, frontend tests and the frontend typecheck  |
 | `make test-backend`  | Run only the backend tests (pytest)                    |
 | `make test-frontend` | Run only the frontend tests (Vitest)                   |
+| `make typecheck`  | `tsc --noEmit` inside the frontend container              |
+| `make e2e`        | Playwright smoke test against the running, seeded stack   |
 | `make types`      | Regenerate OpenAPI schema and the TS client               |
 | `make migrate`    | Apply migrations                                          |
 
@@ -86,6 +93,18 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
 - Raw CSVs live in `data/olist/` and are gitignored. If they are missing, the import command
   must fail with a clear message telling me where to download them. The importer reads
   `OLIST_DATA_DIR` (default `/data/olist`, i.e. `data/olist/` mounted read-only in the container).
+- Olist products have no name, description, price or stock. The importer **generates** them:
+  `apps/catalog/enrichment.py` derives name/slug/description deterministically from the
+  external ID (sha256-seeded, per-category word lists). Tests pin example outputs — changing
+  the word lists renames products and changes slugs (= URLs), so treat it like a migration.
+- `Offer` = one seller selling one product, derived from order items: price = exact median item
+  price for the (product, seller) pair; stock is synthetic and deterministic (md5 of the IDs,
+  ~10% at 0). Product stats (`min_price`, `rating_avg/count`, `sales_count`, `first_sold_at`,
+  `search_vector`) are denormalised and recomputed by `apps/catalog/stats.py` at the end of
+  every import with set-based SQL. Anything that changes offers, reviews, order items or a
+  product's name/category must refresh them.
+- Migrations that add required columns to populated tables: add nullable → backfill with a
+  frozen `RunPython` (no app imports) → enforce in a follow-up migration.
 - Bad rows are logged and skipped, never fatal; the import summary reports skipped counts by
   reason. Rows kept with a caveat (no category, untranslated category) are reported as notes.
 
@@ -101,13 +120,44 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
 - Order statuses follow Olist: created, approved, invoiced, processing, shipped, delivered,
   canceled, unavailable.
 
+## API conventions
+
+- Catalog endpoints: `GET /api/categories/`, `/api/products/` (filters `category`, `q`,
+  `min_price`, `max_price`, `min_rating`, `in_stock`, `ordering`; page size 24, max 100),
+  `/api/products/{slug}/`, `/api/products/{slug}/reviews/`.
+- Validate query params with a DRF serializer (bad values → 400 with per-field messages; it also
+  documents them via `extend_schema(parameters=[...])`). Malformed `page`/`page_size` → 400;
+  a valid page past the end → 404 (`StrictPageNumberPagination`).
+- Output serializers set `read_only_fields = fields` so the OpenAPI/TS types mark every field
+  as always present.
+- Every list/detail endpoint has a `django_assert_num_queries` test; use `select_related` /
+  `prefetch_related` so counts stay constant.
+- Search: Postgres full-text (`Product.search_vector`, GIN index, prefix tsquery). Money is
+  serialised as decimal strings ("75.01").
+
+## Frontend data and caching
+
+- Data is fetched in Server Components through the typed client; every call goes through
+  `withTimeout()` (5 s, plain `BackendTimeoutError`). Don't add openapi-fetch middleware: it
+  calls `Math.random()`, which `cacheComponents` rejects during prerender.
+- `cacheComponents` is on. Cache with `"use cache"` + `cacheLife` + `cacheTag` (product detail:
+  revalidate 5 min, tags `product:<slug>` and `products` — ready for event-driven
+  `revalidateTag`). Listings stay dynamic. Anything reading `searchParams`/`usePathname()` must
+  sit under a `<Suspense>` boundary (or a `loading.tsx`).
+- On a streamed route, `notFound()` renders the not-found UI with `noindex` but the HTTP status
+  is already 200 (documented Next behaviour); the API returns real 404s.
+- The shop's URL search params are the single source of truth for filters/search/sort/page;
+  convert only via `lib/shop-params.ts`.
+
 ## UI rules
 
 - Build UI from shadcn/ui components (added with the shadcn CLI into `components/ui/`). Don't
   hand-roll a button, dialog, table or form control that shadcn already provides; compose them
   into feature components in `components/<feature>/`.
 - Theme through shadcn's CSS variables in `globals.css` only — no hard-coded colours in
-  components. Light and dark mode must both look right.
+  components. Light and dark mode must both look right. Project tokens beyond shadcn's:
+  `--success`, `--rating`, and `--category-1..8` (product placeholder tints, picked by a hash
+  of the category slug; the icon comes from the category's `group`).
 - One consistent app shell: header with nav and a theme toggle, max-width content area,
   consistent page headings and spacing.
 - Every data view has a loading state (Skeleton), an empty state and an error state.
@@ -132,6 +182,13 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
 - Update this file when commands, layout or conventions change.
 
 ## Known issues
+
+- next-themes 0.4.6 logs "Encountered a script tag while rendering React component" in the
+  browser console under React 19. Harmless (the theme script runs during SSR); no newer
+  release yet.
+- First visit to a route on the dev server compiles it (can take a minute on macOS bind
+  mounts); later requests are fast. `make up` renews the node_modules volume
+  (`--renew-anon-volumes`) so new npm dependencies reach the container.
 
 - `npm audit` reports high-severity findings via the `shadcn` package (`braces` / `fast-glob`
   glob handling). `shadcn` is a runtime dependency only so `globals.css` can import

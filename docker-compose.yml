@@ -51,5 +51,22 @@ services:
     depends_on:
       - backend
 
+  # Playwright smoke tests: `make e2e`. Not started by `make up` (compose profile).
+  e2e:
+    # Must match @playwright/test in frontend/package.json
+    image: mcr.microsoft.com/playwright:v1.63.0-noble
+    profiles: ["e2e"]
+    working_dir: /app
+    environment:
+      BASE_URL: http://frontend:3000
+      CI: "1"
+    command: ["sh", "e2e/run.sh"]
+    volumes:
+      - ./frontend:/app
+      - e2e_node_modules:/app/node_modules
+    depends_on:
+      - frontend
+
 volumes:
   pgdata:
+  e2e_node_modules:

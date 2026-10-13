@@ -24,7 +24,9 @@ from zoneinfo import ZoneInfo
 
 from django.db import models, transaction
 
+from apps.catalog.enrichment import category_slug, generate_product_text
 from apps.catalog.models import Category, Product, Seller
+from apps.catalog.stats import refresh_offers_and_stats
 from apps.customers.models import Customer
 from apps.orders.models import Order, OrderItem, Payment, Review
 
@@ -210,6 +212,7 @@ class OlistImporter:
         self._import_items(items)
         self._import_payments(payments)
         self._import_reviews(reviews)
+        self._refresh_offers_and_stats()
         return self.results
 
     # reading
@@ -248,8 +251,11 @@ class OlistImporter:
                 logger.warning("No English translation for category %r; using Portuguese name", name)
                 result.notes["no translation, pt name used"] += 1
                 rows[name] = name
-        objs = (Category(name=name, name_english=english) for name, english in rows.items())
-        self._write(result, TableSpec(Category, ["name"], ["name_english"]), objs)
+        objs = (
+            Category(name=name, name_english=english, slug=category_slug(english))
+            for name, english in rows.items()
+        )
+        self._write(result, TableSpec(Category, ["name"], ["name_english", "slug"]), objs)
 
     def _import_sellers(self, sellers: list[dict]) -> None:
         result = TableResult("sellers")
@@ -267,16 +273,22 @@ class OlistImporter:
 
     def _import_products(self, products: list[dict]) -> None:
         result = TableResult("products")
-        category_pk = dict(Category.objects.values_list("name", "pk"))
+        categories = {
+            name: (pk, english)
+            for name, pk, english in Category.objects.values_list("name", "pk", "name_english")
+        }
         dims = ["name_length", "description_length", "photos_qty", "weight_g", "length_cm",
                 "height_cm", "width_cm"]
-        spec = TableSpec(Product, ["external_id"], ["category", *dims])
+        spec = TableSpec(
+            Product, ["external_id"], ["category", "name", "slug", "description", *dims]
+        )
 
         def build(row: dict) -> Product:
             category_name = row["product_category_name"].strip()
+            category_pk, category_english = categories.get(category_name, (None, None))
             product = Product(
                 external_id=row["product_id"],
-                category_id=category_pk.get(category_name),
+                category_id=category_pk,
                 # Olist misspells "length" as "lenght" in these headers
                 name_length=parse_int(row["product_name_lenght"]),
                 description_length=parse_int(row["product_description_lenght"]),
@@ -286,6 +298,15 @@ class OlistImporter:
                 height_cm=parse_int(row["product_height_cm"]),
                 width_cm=parse_int(row["product_width_cm"]),
             )
+            # Olist has no names/descriptions: generate them deterministically from the ID.
+            text = generate_product_text(
+                product.external_id,
+                category_english,
+                description_length=product.description_length,
+                dims={f: getattr(product, f) for f in ("length_cm", "width_cm", "height_cm",
+                                                       "weight_g")},
+            )
+            product.name, product.slug, product.description = text.name, text.slug, text.description
             if not category_name:
                 result.notes["no category, imported uncategorised"] += 1
             return product
@@ -444,6 +465,18 @@ class OlistImporter:
         # exact (review_id, order_id) repeat is a duplicate.
         rows = self._convert(result, reviews, build, key=("review_id", "order_id"))
         self._write(result, spec, rows)
+
+    def _refresh_offers_and_stats(self) -> None:
+        result = TableResult("offers")
+        with transaction.atomic():
+            stats = refresh_offers_and_stats()
+        result.processed, result.created, result.total = (
+            stats.offers_written, stats.offers_created, stats.offers_total
+        )
+        self._progress(result)
+        self.results.append(result)
+        changed = ", ".join(f"{label} {n:,}" for label, n in stats.products_changed.items())
+        self._say(f"Product stats refreshed (products changed: {changed})")
 
     # shared machinery
 

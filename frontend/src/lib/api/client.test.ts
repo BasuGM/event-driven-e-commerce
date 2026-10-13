@@ -35,7 +35,10 @@ describe("API client timeout", () => {
     const result = client[fn]().finally(() => {
       settled = true
     })
-    const assertion = expect(result).rejects.toMatchObject({ name: "TimeoutError" })
+    const assertion = expect(result).rejects.toMatchObject({
+      name: "BackendTimeoutError",
+      message: expect.stringContaining(`within ${client.TIMEOUT_MS} ms`),
+    })
 
     await vi.advanceTimersByTimeAsync(client.TIMEOUT_MS - 1)
     expect(settled).toBe(false)

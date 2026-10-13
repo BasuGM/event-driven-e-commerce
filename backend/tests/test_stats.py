@@ -16,4 +16,4 @@ def test_stats_counts_imported_rows(api_client, olist_dir):
 
     response = api_client.get("/api/stats/")
 
-    assert response.json() == {"products": 3, "orders": 5, "customers": 4, "sellers": 2}
+    assert response.json() == {"products": 4, "orders": 7, "customers": 6, "sellers": 3}

@@ -4,6 +4,21 @@ info:
   version: 0.1.0
   description: E-commerce platform seeded with the Olist Brazilian E-Commerce dataset.
 paths:
+  /api/categories/:
+    get:
+      operationId: categories_list
+      summary: Categories that have at least one product
+      tags:
+      - categories
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+          description: ''
   /api/health/:
     get:
       operationId: health_retrieve
@@ -23,6 +38,138 @@ paths:
               schema:
                 $ref: '#/components/schemas/Health'
           description: ''
+  /api/products/:
+    get:
+      operationId: products_list
+      summary: Browse, filter and search products
+      parameters:
+      - in: query
+        name: category
+        schema:
+          type: string
+          minLength: 1
+          pattern: ^[-a-zA-Z0-9_]+$
+        description: Category slug
+      - in: query
+        name: in_stock
+        schema:
+          type: boolean
+          nullable: true
+        description: true = only products you can buy
+      - in: query
+        name: max_price
+        schema:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+      - in: query
+        name: min_price
+        schema:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+      - in: query
+        name: min_rating
+        schema:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,1}(?:\.\d{0,2})?$
+      - in: query
+        name: ordering
+        schema:
+          enum:
+          - popular
+          - price
+          - -price
+          - rating
+          - newest
+          type: string
+          minLength: 1
+        description: |-
+          Default: relevance when searching, otherwise popular
+
+          * `popular` - popular
+          * `price` - price
+          * `-price` - -price
+          * `rating` - rating
+          * `newest` - newest
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 100
+        description: Search product and category names (prefix match, e.g. 'duv cov')
+      tags:
+      - products
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedProductListList'
+          description: ''
+  /api/products/{slug}/:
+    get:
+      operationId: products_retrieve
+      summary: Product detail with offers
+      parameters:
+      - in: path
+        name: slug
+        schema:
+          type: string
+        required: true
+      tags:
+      - products
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductDetail'
+          description: ''
+  /api/products/{slug}/reviews/:
+    get:
+      operationId: products_reviews_list
+      summary: Reviews of orders containing this product, newest first
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: path
+        name: slug
+        schema:
+          type: string
+        required: true
+      tags:
+      - products
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedProductReviewList'
+          description: ''
   /api/stats/:
     get:
       operationId: stats_retrieve
@@ -38,6 +185,136 @@ paths:
           description: ''
 components:
   schemas:
+    Category:
+      type: object
+      properties:
+        slug:
+          type: string
+          readOnly: true
+          pattern: ^[-a-zA-Z0-9_]+$
+        label:
+          type: string
+          readOnly: true
+        group:
+          allOf:
+          - $ref: '#/components/schemas/GroupEnum'
+          readOnly: true
+          description: |-
+            Drives the placeholder image
+
+            * `appliances` - appliances
+            * `auto` - auto
+            * `beauty` - beauty
+            * `electronics` - electronics
+            * `fashion` - fashion
+            * `food` - food
+            * `furniture` - furniture
+            * `general` - general
+            * `housewares` - housewares
+            * `media` - media
+            * `pets` - pets
+            * `sports` - sports
+            * `textiles` - textiles
+            * `tools` - tools
+            * `toys` - toys
+        product_count:
+          type: integer
+          readOnly: true
+      required:
+      - group
+      - label
+      - product_count
+      - slug
+    CategoryRef:
+      type: object
+      properties:
+        slug:
+          type: string
+          readOnly: true
+          pattern: ^[-a-zA-Z0-9_]+$
+        label:
+          type: string
+          readOnly: true
+        group:
+          allOf:
+          - $ref: '#/components/schemas/GroupEnum'
+          readOnly: true
+          description: |-
+            Drives the placeholder image
+
+            * `appliances` - appliances
+            * `auto` - auto
+            * `beauty` - beauty
+            * `electronics` - electronics
+            * `fashion` - fashion
+            * `food` - food
+            * `furniture` - furniture
+            * `general` - general
+            * `housewares` - housewares
+            * `media` - media
+            * `pets` - pets
+            * `sports` - sports
+            * `textiles` - textiles
+            * `tools` - tools
+            * `toys` - toys
+      required:
+      - group
+      - label
+      - slug
+    Dimensions:
+      type: object
+      properties:
+        weight_g:
+          type: integer
+          nullable: true
+        length_cm:
+          type: integer
+          nullable: true
+        width_cm:
+          type: integer
+          nullable: true
+        height_cm:
+          type: integer
+          nullable: true
+      required:
+      - height_cm
+      - length_cm
+      - weight_g
+      - width_cm
+    GroupEnum:
+      enum:
+      - appliances
+      - auto
+      - beauty
+      - electronics
+      - fashion
+      - food
+      - furniture
+      - general
+      - housewares
+      - media
+      - pets
+      - sports
+      - textiles
+      - tools
+      - toys
+      type: string
+      description: |-
+        * `appliances` - appliances
+        * `auto` - auto
+        * `beauty` - beauty
+        * `electronics` - electronics
+        * `fashion` - fashion
+        * `food` - food
+        * `furniture` - furniture
+        * `general` - general
+        * `housewares` - housewares
+        * `media` - media
+        * `pets` - pets
+        * `sports` - sports
+        * `textiles` - textiles
+        * `tools` - tools
+        * `toys` - toys
     Health:
       type: object
       properties:
@@ -65,6 +342,226 @@ components:
       description: |-
         * `ok` - ok
         * `error` - error
+    Offer:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        seller_id:
+          type: string
+          readOnly: true
+        seller_city:
+          type: string
+          readOnly: true
+        seller_state:
+          type: string
+          readOnly: true
+        price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          readOnly: true
+          description: Median Olist item price for this pair
+        in_stock:
+          type: boolean
+          readOnly: true
+      required:
+      - id
+      - in_stock
+      - price
+      - seller_city
+      - seller_id
+      - seller_state
+    PaginatedProductListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductList'
+    PaginatedProductReviewList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductReview'
+    ProductDetail:
+      type: object
+      properties:
+        slug:
+          type: string
+          readOnly: true
+          pattern: ^[-a-zA-Z0-9_]+$
+        name:
+          type: string
+          readOnly: true
+        category:
+          allOf:
+          - $ref: '#/components/schemas/CategoryRef'
+          readOnly: true
+          nullable: true
+        image_url:
+          type: string
+          format: uri
+          readOnly: true
+          nullable: true
+        min_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          readOnly: true
+          nullable: true
+          description: Lowest price among in-stock offers
+        in_stock:
+          type: boolean
+          readOnly: true
+        rating_avg:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,1}(?:\.\d{0,2})?$
+          readOnly: true
+          nullable: true
+        rating_count:
+          type: integer
+          readOnly: true
+        description:
+          type: string
+          readOnly: true
+        dimensions:
+          allOf:
+          - $ref: '#/components/schemas/Dimensions'
+          readOnly: true
+        sales_count:
+          type: integer
+          readOnly: true
+        photos_qty:
+          type: integer
+          readOnly: true
+          nullable: true
+        offers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Offer'
+          readOnly: true
+      required:
+      - category
+      - description
+      - dimensions
+      - image_url
+      - in_stock
+      - min_price
+      - name
+      - offers
+      - photos_qty
+      - rating_avg
+      - rating_count
+      - sales_count
+      - slug
+    ProductList:
+      type: object
+      properties:
+        slug:
+          type: string
+          readOnly: true
+          pattern: ^[-a-zA-Z0-9_]+$
+        name:
+          type: string
+          readOnly: true
+        category:
+          allOf:
+          - $ref: '#/components/schemas/CategoryRef'
+          readOnly: true
+          nullable: true
+        image_url:
+          type: string
+          format: uri
+          readOnly: true
+          nullable: true
+        min_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          readOnly: true
+          nullable: true
+          description: Lowest price among in-stock offers
+        in_stock:
+          type: boolean
+          readOnly: true
+        rating_avg:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,1}(?:\.\d{0,2})?$
+          readOnly: true
+          nullable: true
+        rating_count:
+          type: integer
+          readOnly: true
+      required:
+      - category
+      - image_url
+      - in_stock
+      - min_price
+      - name
+      - rating_avg
+      - rating_count
+      - slug
+    ProductReview:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        score:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+        message:
+          type: string
+        created_date:
+          type: string
+          format: date
+          readOnly: true
+      required:
+      - created_date
+      - id
+      - message
+      - score
+      - title
     Stats:
       type: object
       properties:

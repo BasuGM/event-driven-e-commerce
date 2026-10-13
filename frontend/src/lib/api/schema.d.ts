@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/categories/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Categories that have at least one product */
+        get: operations["categories_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health/": {
         parameters: {
             query?: never;
@@ -13,6 +30,57 @@ export interface paths {
         };
         /** Status of the database and Redis */
         get: operations["health_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/products/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Browse, filter and search products */
+        get: operations["products_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/products/{slug}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Product detail with offers */
+        get: operations["products_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/products/{slug}/reviews/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Reviews of orders containing this product, newest first */
+        get: operations["products_reviews_list"];
         put?: never;
         post?: never;
         delete?: never;
@@ -42,6 +110,80 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        Category: {
+            readonly slug: string;
+            readonly label: string;
+            /**
+             * @description Drives the placeholder image
+             *
+             *     * `appliances` - appliances
+             *     * `auto` - auto
+             *     * `beauty` - beauty
+             *     * `electronics` - electronics
+             *     * `fashion` - fashion
+             *     * `food` - food
+             *     * `furniture` - furniture
+             *     * `general` - general
+             *     * `housewares` - housewares
+             *     * `media` - media
+             *     * `pets` - pets
+             *     * `sports` - sports
+             *     * `textiles` - textiles
+             *     * `tools` - tools
+             *     * `toys` - toys
+             */
+            readonly group: components["schemas"]["GroupEnum"];
+            readonly product_count: number;
+        };
+        CategoryRef: {
+            readonly slug: string;
+            readonly label: string;
+            /**
+             * @description Drives the placeholder image
+             *
+             *     * `appliances` - appliances
+             *     * `auto` - auto
+             *     * `beauty` - beauty
+             *     * `electronics` - electronics
+             *     * `fashion` - fashion
+             *     * `food` - food
+             *     * `furniture` - furniture
+             *     * `general` - general
+             *     * `housewares` - housewares
+             *     * `media` - media
+             *     * `pets` - pets
+             *     * `sports` - sports
+             *     * `textiles` - textiles
+             *     * `tools` - tools
+             *     * `toys` - toys
+             */
+            readonly group: components["schemas"]["GroupEnum"];
+        };
+        Dimensions: {
+            weight_g: number | null;
+            length_cm: number | null;
+            width_cm: number | null;
+            height_cm: number | null;
+        };
+        /**
+         * @description * `appliances` - appliances
+         *     * `auto` - auto
+         *     * `beauty` - beauty
+         *     * `electronics` - electronics
+         *     * `fashion` - fashion
+         *     * `food` - food
+         *     * `furniture` - furniture
+         *     * `general` - general
+         *     * `housewares` - housewares
+         *     * `media` - media
+         *     * `pets` - pets
+         *     * `sports` - sports
+         *     * `textiles` - textiles
+         *     * `tools` - tools
+         *     * `toys` - toys
+         * @enum {string}
+         */
+        GroupEnum: "appliances" | "auto" | "beauty" | "electronics" | "fashion" | "food" | "furniture" | "general" | "housewares" | "media" | "pets" | "sports" | "textiles" | "tools" | "toys";
         Health: {
             /**
              * @description 'ok' only if every dependency is ok
@@ -59,6 +201,93 @@ export interface components {
          * @enum {string}
          */
         HealthStatusEnum: "ok" | "error";
+        Offer: {
+            readonly id: number;
+            readonly seller_id: string;
+            readonly seller_city: string;
+            readonly seller_state: string;
+            /**
+             * Format: decimal
+             * @description Median Olist item price for this pair
+             */
+            readonly price: string;
+            readonly in_stock: boolean;
+        };
+        PaginatedProductListList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["ProductList"][];
+        };
+        PaginatedProductReviewList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["ProductReview"][];
+        };
+        ProductDetail: {
+            readonly slug: string;
+            readonly name: string;
+            readonly category: components["schemas"]["CategoryRef"] | null;
+            /** Format: uri */
+            readonly image_url: string | null;
+            /**
+             * Format: decimal
+             * @description Lowest price among in-stock offers
+             */
+            readonly min_price: string | null;
+            readonly in_stock: boolean;
+            /** Format: decimal */
+            readonly rating_avg: string | null;
+            readonly rating_count: number;
+            readonly description: string;
+            readonly dimensions: components["schemas"]["Dimensions"];
+            readonly sales_count: number;
+            readonly photos_qty: number | null;
+            readonly offers: components["schemas"]["Offer"][];
+        };
+        ProductList: {
+            readonly slug: string;
+            readonly name: string;
+            readonly category: components["schemas"]["CategoryRef"] | null;
+            /** Format: uri */
+            readonly image_url: string | null;
+            /**
+             * Format: decimal
+             * @description Lowest price among in-stock offers
+             */
+            readonly min_price: string | null;
+            readonly in_stock: boolean;
+            /** Format: decimal */
+            readonly rating_avg: string | null;
+            readonly rating_count: number;
+        };
+        ProductReview: {
+            readonly id: number;
+            readonly score: number;
+            title: string;
+            message: string;
+            /** Format: date */
+            readonly created_date: string;
+        };
         Stats: {
             products: number;
             orders: number;
@@ -74,6 +303,25 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    categories_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Category"][];
+                };
+            };
+        };
+    };
     health_retrieve: {
         parameters: {
             query?: never;
@@ -97,6 +345,96 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    products_list: {
+        parameters: {
+            query?: {
+                /** @description Category slug */
+                category?: string;
+                /** @description true = only products you can buy */
+                in_stock?: boolean | null;
+                max_price?: string;
+                min_price?: string;
+                min_rating?: string;
+                /**
+                 * @description Default: relevance when searching, otherwise popular
+                 *
+                 *     * `popular` - popular
+                 *     * `price` - price
+                 *     * `-price` - -price
+                 *     * `rating` - rating
+                 *     * `newest` - newest
+                 */
+                ordering?: "popular" | "price" | "-price" | "rating" | "newest";
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+                /** @description Search product and category names (prefix match, e.g. 'duv cov') */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedProductListList"];
+                };
+            };
+        };
+    };
+    products_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductDetail"];
+                };
+            };
+        };
+    };
+    products_reviews_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedProductReviewList"];
                 };
             };
         };

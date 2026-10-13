@@ -7,13 +7,14 @@ DB := $(COMPOSE) exec -T db
 -include .env
 export
 
-.PHONY: require-env up down reset migrate seed seed-large snapshot restore test test-backend test-frontend types
+.PHONY: require-env up down reset migrate seed seed-large snapshot restore test test-backend test-frontend typecheck e2e types
 
 require-env:
 	@test -f .env || { echo "Missing .env. Run: cp .env.example .env"; exit 1; }
 
 up: require-env
-	$(COMPOSE) up -d --build --wait
+	# --renew-anon-volumes: rebuild node_modules/.next volumes so new npm deps reach the container
+	$(COMPOSE) up -d --build --wait --renew-anon-volumes
 
 down: require-env
 	$(COMPOSE) down
@@ -47,13 +48,20 @@ restore: require-env
 	$(DB) pg_restore -U $(POSTGRES_USER) -d $(POSTGRES_DB) --clean --if-exists --no-owner \
 		/snapshots/$$(basename $$latest)
 
-test: test-backend test-frontend
+test: test-backend test-frontend typecheck
 
 test-backend: require-env
 	$(BACKEND) pytest
 
 test-frontend: require-env
 	$(FRONTEND) npm run test
+
+typecheck: require-env
+	$(FRONTEND) npx tsc --noEmit
+
+# Playwright smoke test against the running, seeded stack (make up && make reset first)
+e2e: require-env
+	$(COMPOSE) --profile e2e run --rm e2e
 
 types: require-env
 	$(COMPOSE) exec -T backend python manage.py spectacular --validate > frontend/src/lib/api/schema.yml

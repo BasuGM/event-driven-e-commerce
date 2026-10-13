@@ -6,7 +6,7 @@ from io import StringIO
 import pytest
 from django.core.management import CommandError, call_command
 
-from apps.catalog.models import Category, Product, Seller
+from apps.catalog.models import Category, Offer, Product, Seller
 from apps.core.olist_import import OlistImporter
 from apps.customers.models import Customer
 from apps.orders.models import Order, OrderItem, Payment, Review
@@ -33,19 +33,20 @@ def run_import(olist_dir, *args):
 def table_counts():
     return {
         model.__name__: model.objects.count()
-        for model in (Category, Seller, Product, Customer, Order, OrderItem, Payment, Review)
+        for model in (Category, Seller, Product, Customer, Order, OrderItem, Payment, Review, Offer)
     }
 
 
 EXPECTED_COUNTS = {
     "Category": 3,  # perfumery, health_beauty + untranslated pc_gamer
-    "Seller": 2,
-    "Product": 3,
-    "Customer": 4,  # c1 and c2 are the same person (u1)
-    "Order": 5,  # o6 has an unknown customer
-    "OrderItem": 5,  # unknown product + malformed price skipped
+    "Seller": 3,
+    "Product": 4,
+    "Customer": 6,  # c1 and c2 are the same person (u1)
+    "Order": 7,  # o6 has an unknown customer
+    "OrderItem": 10,  # unknown product + malformed price skipped
     "Payment": 5,  # one exact duplicate skipped
-    "Review": 3,  # r1, and r2 shared by o2 and o3
+    "Review": 6,  # r1, r5, and r2 / r6 each shared by two orders
+    "Offer": 7,  # distinct (product, seller) pairs among imported items
 }
 
 
@@ -63,7 +64,9 @@ def test_reimport_is_idempotent(olist_dir):
     # Second run reports zero new rows for every table
     for line in output.splitlines():
         if line.startswith("orders "):
-            assert line.split()[1:4] == ["5", "0", "5"]
+            assert line.split()[1:4] == ["7", "0", "7"]
+        if line.startswith("offers "):
+            assert line.split()[1:4] == ["0", "0", "7"]  # nothing changed, nothing rewritten
 
 
 def test_skipped_rows_are_counted_by_reason(olist_dir):
@@ -146,7 +149,7 @@ def test_small_sample_is_deterministic_and_consistent(olist_dir):
     assert set(Customer.objects.values_list("pk", flat=True)) == set(
         Order.objects.values_list("customer_id", flat=True)
     )
-    assert Product.objects.count() <= 3 and Seller.objects.count() <= 2
+    assert Product.objects.count() <= 4 and Seller.objects.count() <= 3
 
     # Same seed, same sample
     Review.objects.all().delete()
@@ -178,6 +181,6 @@ def test_progress_prints_one_line_per_batch_and_final_count_once(olist_dir):
 
     progress = [line.split() for line in out.getvalue().splitlines() if "rows written" in line]
     orders = [words[1] for words in progress if words[0] == "orders"]
-    # 5 orders in batches of 2: one line per batch, the final count exactly once
-    assert orders == ["2", "4", "5"]
+    # 7 orders in batches of 2: one line per batch, the final count exactly once
+    assert orders == ["2", "4", "6", "7"]
     assert "\r" not in out.getvalue()
