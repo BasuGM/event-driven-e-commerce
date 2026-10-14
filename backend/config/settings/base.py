@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     "apps.catalog",
     "apps.customers",
     "apps.orders",
+    "apps.cart",
 ]
 
 MIDDLEWARE = [
@@ -95,6 +96,40 @@ OLIST_SOURCE_TIMEZONE = "America/Sao_Paulo"
 
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # Session auth only (no JWT). Views that are public opt out explicitly.
+    "DEFAULT_AUTHENTICATION_CLASSES": ["apps.accounts.authentication.SessionAuthentication"],
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "EXCEPTION_HANDLER": "apps.core.exceptions.exception_handler",
+}
+
+# --- Sessions and CSRF ---------------------------------------------------------------------
+# The browser reaches Django through the Next.js rewrite (same origin), so cookies are
+# first-party. Django sees Host=backend:8000 but Origin=http://localhost:<port>, hence the
+# explicit trusted origins (we deliberately don't trust X-Forwarded-Host: port 8000 is exposed).
+CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
+CSRF_COOKIE_HTTPONLY = False  # the browser client reads it to send X-CSRFToken
+CSRF_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_HTTPONLY = True
+
+# --- Orders --------------------------------------------------------------------------------
+RESERVATION_TTL_MINUTES = int(os.environ.get("RESERVATION_TTL_MINUTES", "15"))
+IDEMPOTENCY_KEY_TTL_HOURS = 24
+ALLOW_FAKE_PAYMENTS = False  # simulated payments: dev/test only
+
+# --- Celery --------------------------------------------------------------------------------
+CELERY_BROKER_URL = REDIS_URL
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TIMEZONE = "UTC"
+CELERY_BEAT_SCHEDULE = {
+    "release-expired-reservations": {
+        "task": "apps.orders.tasks.release_expired_reservations",
+        "schedule": 60.0,
+    },
+    "purge-expired-idempotency-keys": {
+        "task": "apps.core.tasks.purge_expired_idempotency_keys",
+        "schedule": 60.0 * 60 * 24,
+    },
 }
 
 SPECTACULAR_SETTINGS = {
@@ -105,7 +140,10 @@ SPECTACULAR_SETTINGS = {
     # Keep component names stable for the generated TypeScript client
     "COMPONENT_SPLIT_REQUEST": True,
     # One shared enum for the three health fields instead of three auto-named copies
-    "ENUM_NAME_OVERRIDES": {"HealthStatusEnum": "apps.core.serializers.HEALTH_CHOICES"},
+    "ENUM_NAME_OVERRIDES": {
+        "HealthStatusEnum": "apps.core.serializers.HEALTH_CHOICES",
+        "OrderStatusEnum": "apps.orders.models.Order.Status",
+    },
 }
 
 LOGGING = {

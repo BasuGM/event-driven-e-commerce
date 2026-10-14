@@ -99,3 +99,15 @@ def test_reimport_changes_nothing(imported, olist_dir):
     assert list(Product.objects.order_by("pk").values(*fields)) == before_products
     assert list(Offer.objects.order_by("pk").values("price", "stock")) == before_offers
     assert "products changed: sales 0, ratings 0, min_price 0, search 0" in out.getvalue()
+
+
+def test_offer_freight_is_median_of_item_freight(imported):
+    assert offer(1, 1).freight == Decimal("8.00")  # [13.29, 8.00, 8.00]
+    assert offer(2, 1).freight == Decimal("14.00")  # even: (8.00 + 20.00) / 2
+
+
+def test_reseed_never_overwrites_live_stock(imported, olist_dir):
+    # Stock belongs to the order flow once an offer exists (reservations decrement it)
+    Offer.objects.filter(pk=offer(1, 1).pk).update(stock=2)
+    call_command("import_olist", "--size", "large", "--data-dir", str(olist_dir), stdout=StringIO())
+    assert offer(1, 1).stock == 2

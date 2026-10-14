@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 
@@ -9,6 +10,11 @@ class Customer(models.Model):
     """
 
     external_id = models.CharField(max_length=32, unique=True)
+    # Olist customers have no account; a Customer is created for a user at first checkout.
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="customer",
+    )
     zip_code_prefix = models.CharField(max_length=5)
     city = models.CharField(max_length=100)
     state = models.CharField(max_length=2, db_index=True)

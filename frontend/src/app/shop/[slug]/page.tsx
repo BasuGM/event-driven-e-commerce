@@ -92,7 +92,7 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
         </CardHeader>
         <CardContent>
           {product.offers.length > 0 ? (
-            <OffersTable offers={product.offers} />
+            <OffersTable offers={product.offers} productSlug={product.slug} />
           ) : (
             <p className="text-sm text-muted-foreground">No sellers offer this product right now.</p>
           )}

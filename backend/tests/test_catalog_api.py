@@ -3,10 +3,9 @@ from io import StringIO
 
 import pytest
 from django.core.management import call_command
-from django.db import connection
 
 from apps.catalog.models import Product
-from apps.catalog.stats import SEARCH_VECTOR_SQL
+from apps.catalog.stats import refresh_product_stats
 
 pytestmark = pytest.mark.django_db
 
@@ -113,8 +112,7 @@ def test_search_matches_category_name(api_client, catalog):
 def test_search_ranks_name_matches_above_category_matches(api_client, catalog):
     # Give p2 (uncategorised) "perfumery" in its name: name weight A beats p1's category (B).
     Product.objects.filter(pk=catalog[2].pk).update(name="Perfumery Travel Case")
-    with connection.cursor() as cursor:
-        cursor.execute(SEARCH_VECTOR_SQL)
+    refresh_product_stats([catalog[2].pk], labels=("search",))
     assert slugs(api_client.get("/api/products/", {"q": "perfumery"})) == [
         catalog[2].slug, catalog[1].slug
     ]

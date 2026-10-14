@@ -1,6 +1,6 @@
 from django.db import models
 
-from apps.catalog.models import Product, Seller
+from apps.catalog.models import Offer, Product, Seller
 from apps.customers.models import Customer
 
 MONEY = {"max_digits": 12, "decimal_places": 2}
@@ -28,6 +28,14 @@ class Order(models.Model):
     delivered_carrier_at = models.DateTimeField(null=True, blank=True)
     delivered_customer_at = models.DateTimeField(null=True, blank=True)
     estimated_delivery_date = models.DateField(null=True, blank=True)
+
+    # Shipping address for orders placed in this app (blank for imported Olist orders)
+    shipping_name = models.CharField(max_length=120, blank=True, default="")
+    shipping_street = models.CharField(max_length=200, blank=True, default="")
+    shipping_city = models.CharField(max_length=100, blank=True, default="")
+    shipping_state = models.CharField(max_length=2, blank=True, default="")
+    shipping_zip = models.CharField(max_length=9, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
 
     class Meta:
         ordering = ["-purchased_at"]
@@ -106,3 +114,56 @@ class Review(models.Model):
 
     def __str__(self) -> str:
         return f"{self.external_id} ({self.score}★)"
+
+
+class OrderStatusHistory(models.Model):
+    """Audit trail: one row per transition (from_status is blank for the initial 'created')."""
+
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="status_history")
+    from_status = models.CharField(max_length=20, choices=Order.Status.choices, blank=True)
+    to_status = models.CharField(max_length=20, choices=Order.Status.choices)
+    reason = models.CharField(max_length=50)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        verbose_name_plural = "order status history"
+        indexes = [models.Index(fields=["order", "created_at"], name="order_history_idx")]
+
+    def __str__(self) -> str:
+        return f"{self.order}: {self.from_status or '∅'} → {self.to_status} ({self.reason})"
+
+
+class Reservation(models.Model):
+    """Stock held for an unpaid order. Stock is decremented when this is created (active) and
+    given back exactly once if it is released; committing (payment) keeps it sold."""
+
+    class Status(models.TextChoices):
+        ACTIVE = "active"
+        COMMITTED = "committed"
+        RELEASED = "released"
+
+    offer = models.ForeignKey(Offer, on_delete=models.PROTECT, related_name="reservations")
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="reservations")
+    quantity = models.PositiveSmallIntegerField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [
+            models.UniqueConstraint(fields=["order", "offer"], name="uniq_reservation_order_offer"),
+            models.CheckConstraint(condition=models.Q(quantity__gte=1), name="reservation_quantity_positive"),
+        ]
+        indexes = [
+            # The sweeper only ever looks at active reservations by expiry: keep the index small.
+            models.Index(
+                fields=["expires_at"], name="reservation_active_expiry_idx",
+                condition=models.Q(status="active"),
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.quantity} × offer {self.offer_id} for {self.order} ({self.status})"

@@ -86,6 +86,9 @@ class Offer(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="offers")
     seller = models.ForeignKey(Seller, on_delete=models.PROTECT, related_name="offers")
     price = models.DecimalField(**MONEY, help_text="Median Olist item price for this pair")
+    freight = models.DecimalField(**MONEY, help_text="Median Olist freight per unit for this pair")
+    # PositiveIntegerField adds CHECK (stock >= 0) in Postgres: the backstop against overselling.
+    # Only apps.orders.services changes stock after the import creates the offer.
     stock = models.PositiveIntegerField()
 
     class Meta:

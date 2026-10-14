@@ -7,12 +7,12 @@ real Olist Brazilian E-Commerce dataset so there is realistic data from day one.
 
 - **Backend:** Django (latest stable) + Django REST Framework, drf-spectacular for OpenAPI
 - **Database:** PostgreSQL
-- **Queue / events:** Redis — used for health checks today; Celery (broker) is added in the step
-  that first needs background work, and Redis Streams for events in a later step
+- **Queue / events:** Redis — Celery broker (`worker` + `beat` services: reservation expiry,
+  key cleanup); Redis Streams for events in a later step
 - **Frontend:** Next.js (latest stable, App Router) + TypeScript + Tailwind + shadcn/ui (lucide-react
-  icons, next-themes for dark mode). TanStack Table (data tables), Recharts via shadcn's chart
-  component (charts), react-hook-form and zod (forms) are added with the first feature that
-  uses them
+  icons, next-themes for dark mode), forms with shadcn `Field` + react-hook-form + zod. TanStack
+  Table (data tables) and Recharts via shadcn's chart component (charts) are added with the first
+  feature that uses them
 - **Types across the boundary:** OpenAPI schema → `openapi-typescript` generated client
 - **Tests:** pytest + pytest-django (backend), Vitest (frontend unit), Playwright (e2e smoke, in
   its own Docker image via `make e2e`)
@@ -23,19 +23,26 @@ real Olist Brazilian E-Commerce dataset so there is realistic data from day one.
 ```
 backend/
   config/settings/  base.py, dev.py, test.py (DJANGO_SETTINGS_MODULE picks one)
-  apps/accounts/    custom User model (AUTH_USER_MODEL = accounts.User)
-  apps/core/        health + stats endpoints, Olist importer, management commands
+  apps/accounts/    custom User model (AUTH_USER_MODEL = accounts.User), session auth API
+  apps/core/        health + stats endpoints, Olist importer, management commands,
+                    IdempotencyKey + idempotency.py, domain errors (errors.py)
+  apps/cart/        Cart, CartItem, cart API (never reserves stock)
   apps/catalog/     Category, Product, Seller, Offer; catalog API; enrichment.py (generated
                     names/slugs/descriptions), stats.py (set-based SQL for offers + product stats)
   apps/customers/   Customer
-  apps/orders/      Order, OrderItem, Payment, Review
+  apps/orders/      Order, OrderItem, Payment, Review, Reservation, OrderStatusHistory;
+                    state.py (state machine), services.py (checkout/pay/cancel/expiry — the
+                    only code that changes stock), selectors.py, tasks.py (Celery)
   tests/            pytest suite; tests/fixtures/olist/ = tiny CSVs incl. messy rows
 frontend/src/
   app/              App Router pages (+ loading.tsx / error.tsx per data view)
   components/ui/    shadcn primitives (CLI-managed)
   components/<feature>/  feature components (layout/, dashboard/, shop/, ...)
   lib/api/          schema.yml + generated schema.d.ts (make types), typed client.ts,
-                    catalog.ts (catalog fetchers incl. the cached getProduct)
+                    catalog.ts (catalog fetchers incl. the cached getProduct),
+                    server.ts (as-the-visitor fetchers, forwards cookies), browser.ts (same-origin
+                    client for Client Components, sends X-CSRFToken)
+  lib/checkout-attempt.ts  idempotency keys for checkout (reuse on retry)
   lib/shop-params.ts  URL search params <-> shop filters (the only translation layer)
 frontend/e2e/       Playwright smoke tests (run.sh is the e2e container entry point)
 data/olist/     Raw Olist CSVs, directly in this folder (gitignored, never committed)
@@ -70,6 +77,9 @@ with other local services; containers always talk to each other on the default p
 | `make types`      | Regenerate OpenAPI schema and the TS client               |
 | `make migrate`    | Apply migrations                                          |
 
+`make up` also starts the Celery `worker` and `beat` services (see their logs with
+`docker compose logs -f worker beat`).
+
 Under the hood: `python manage.py import_olist --size small|large [--data-dir DIR]` and
 `python manage.py seed_dev_users` (refuses to run unless settings set `ALLOW_DEV_SEED`).
 
@@ -97,9 +107,10 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   `apps/catalog/enrichment.py` derives name/slug/description deterministically from the
   external ID (sha256-seeded, per-category word lists). Tests pin example outputs — changing
   the word lists renames products and changes slugs (= URLs), so treat it like a migration.
-- `Offer` = one seller selling one product, derived from order items: price = exact median item
-  price for the (product, seller) pair; stock is synthetic and deterministic (md5 of the IDs,
-  ~10% at 0). Product stats (`min_price`, `rating_avg/count`, `sales_count`, `first_sold_at`,
+- `Offer` = one seller selling one product, derived from order items: price and freight = exact
+  median item price / freight_value for the (product, seller) pair; stock is synthetic and
+  deterministic (md5 of the IDs, ~10% at 0) and only set when the offer is first created — after
+  that it belongs to the order flow, so a re-seed never overwrites it. Product stats (`min_price`, `rating_avg/count`, `sales_count`, `first_sold_at`,
   `search_vector`) are denormalised and recomputed by `apps/catalog/stats.py` at the end of
   every import with set-based SQL. Anything that changes offers, reviews, order items or a
   product's name/category must refresh them.
@@ -148,6 +159,55 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   is already 200 (documented Next behaviour); the API returns real 404s.
 - The shop's URL search params are the single source of truth for filters/search/sort/page;
   convert only via `lib/shop-params.ts`.
+- Only our own `TimeoutError` becomes `BackendTimeoutError`; an `AbortError` (e.g. Next aborting a
+  prerender pass) propagates unchanged.
+- Client components inside cached/prerendered pages must not read the URL (`usePathname`) or
+  cookies; pass what they need as props (e.g. `AddToCart` gets `returnTo`). Protected pages turn a
+  401 into `redirect("/login?next=…")` via `orLogin()`; `next` is checked by `safeNext()`.
+- Browser-generated keys use `crypto.getRandomValues` — `crypto.randomUUID` only exists in secure
+  contexts (HTTPS/localhost) and breaks on plain HTTP via other hosts (e2e, LAN).
+
+## Auth, sessions and CSRF
+
+- Session auth only (no JWT). The browser talks to Django **same-origin**: a Next rewrite proxies
+  `/api/*` to the backend (`skipTrailingSlashRedirect` keeps Django's trailing slashes), so the
+  `sessionid` / `csrftoken` cookies are first-party. Server Components call `API_URL` directly and
+  forward the visitor's cookies (`lib/api/server.ts`).
+- Unsafe requests send `X-CSRFToken` read from the `csrftoken` cookie on every request (Django
+  rotates it at login). `GET /api/auth/csrf/` sets it. Login/register are `csrf_protect`ed.
+- Through the proxy Django sees `Host: backend:8000` but the browser's `Origin`, so the browser
+  origins are listed in `CSRF_TRUSTED_ORIGINS` (env). We don't trust `X-Forwarded-Host`.
+- Unauthenticated → **401** (custom `SessionAuthentication`), CSRF/permission failure → 403.
+  Every endpoint requires a session by default; public views opt out.
+- Another user's order or cart line is a **404**, never a 403.
+- Endpoints: `/api/auth/{csrf,me,login,logout,register}/`, `/api/cart/`, `/api/cart/items/[{id}/]`,
+  `/api/checkout/`, `/api/orders/[{id}/[pay/|cancel/]]`. Order URLs use the 32-hex external ID.
+
+## Orders, stock and locking (important)
+
+- **All stock changes after the import go through `apps/orders/services.py`.** Stock is
+  decremented at checkout (a `Reservation` holds it for `RESERVATION_TTL_MINUTES`), returned on
+  release, kept on payment. `stock` has `CHECK (stock >= 0)` as a backstop. The importer only
+  sets stock when it *creates* an offer.
+- **Lock order: Cart (owner) → Order → Offers by ascending id → (after commit, own tx) Products by
+  ascending id.** Always `select_for_update()` with `order_by("id")`; never lock in another order.
+- Reservations are committed/released with a conditional `UPDATE … WHERE status='active'`, so each
+  happens at most once even under races.
+- Order status changes only through `apps/orders/state.transition()` (explicit table, writes
+  `OrderStatusHistory`, requires the locked order). Illegal moves → `InvalidTransition` → 409.
+- Domain errors (`apps/core/errors.py`) are plain exceptions mapped to `{code, detail, …}` by the
+  DRF exception handler: `out_of_stock` (with `lines`), `reservation_expired`,
+  `invalid_transition`, `idempotency_conflict` (409) and `empty_cart` (400).
+- Unsafe, non-repeatable endpoints take an `Idempotency-Key` header (`run_idempotent`): keys are
+  per user, stored with a request hash and the successful response in the same transaction,
+  expire after 24 h. Same key → replay; same key + different body → 409; failures aren't stored.
+- Celery: `release_expired_reservations` every minute (each order in its own transaction,
+  `SKIP LOCKED`, idempotent) and a daily idempotency-key purge.
+- `ALLOW_FAKE_PAYMENTS` (dev/test only) enables `POST /api/orders/{id}/pay/`.
+- Order items are stored one row per unit (like Olist); APIs group them into lines.
+- After any stock/sales change, `refresh_product_stats_on_commit(product_ids)` refreshes
+  `min_price`, sales and ratings (per-product SQL, products locked in id order, retried on
+  deadlock, `robust=True` so it can't fail a committed request).
 
 ## UI rules
 
@@ -161,7 +221,8 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
 - One consistent app shell: header with nav and a theme toggle, max-width content area,
   consistent page headings and spacing.
 - Every data view has a loading state (Skeleton), an empty state and an error state.
-- Forms: shadcn Form + react-hook-form + zod, with schemas mirroring the API types.
+- Forms: shadcn `Field` components + react-hook-form `Controller` + zod (shadcn 4's `form` item
+  is empty), with schemas mirroring the API request types.
 - Prices formatted with `Intl.NumberFormat` (BRL for Olist data), dates with `Intl.DateTimeFormat`.
 - Responsive from 375px wide upwards; accessible (labels, focus states, keyboard navigation).
 - Aim for a clean, modern storefront/admin look — restrained colour, generous whitespace, clear
@@ -181,7 +242,19 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
 - Keep dependencies minimal; ask before adding a new major library.
 - Update this file when commands, layout or conventions change.
 
+## Before deploying (not done yet — required for any non-local environment)
+
+- Rate-limit `POST /api/auth/login/` and `/register/` (e.g. per IP + per email).
+- `SESSION_COOKIE_SECURE = True`, `CSRF_COOKIE_SECURE = True`, HTTPS only (HSTS).
+- `CSRF_TRUSTED_ORIGINS` = the real `https://` origin(s) only; `ALLOWED_HOSTS` likewise.
+- `ALLOW_FAKE_PAYMENTS` off (it is off in `base.py`; only `dev.py`/`test.py` enable it).
+- `DEBUG = False`, a real `DJANGO_SECRET_KEY`, no dev users (`seed_dev_users` refuses without
+  `ALLOW_DEV_SEED`).
+
 ## Known issues
+
+- `redis` (redis-py) is pinned to 6.4.0: `kombu[redis]` (Celery's transport) requires `<6.5`.
+  It was 8.1.0 in Steps 1–2, used only for the health check.
 
 - next-themes 0.4.6 logs "Encountered a script tag while rendering React component" in the
   browser console under React 19. Harmless (the theme script runs during SSR); no newer

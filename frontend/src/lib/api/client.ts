@@ -13,6 +13,16 @@ export type ProductReview = components["schemas"]["ProductReview"]
 export type ProductPage = components["schemas"]["PaginatedProductListList"]
 export type ReviewPage = components["schemas"]["PaginatedProductReviewList"]
 export type CategoryGroup = CategoryRef["group"]
+export type Me = components["schemas"]["Me"]
+export type User = components["schemas"]["User"]
+export type Cart = components["schemas"]["Cart"]
+export type CartLine = components["schemas"]["CartLine"]
+export type OrderDetail = components["schemas"]["OrderDetail"]
+export type OrderListItem = components["schemas"]["OrderList"]
+export type OrderPage = components["schemas"]["PaginatedOrderListList"]
+export type OrderStatus = components["schemas"]["OrderStatusEnum"]
+export type DomainError = components["schemas"]["DomainError"]
+export type ShippingAddress = components["schemas"]["ShippingAddressRequest"]
 
 /**
  * Typed API client for Server Components. `API_URL` is server-only (it points at the
@@ -41,7 +51,9 @@ export async function withTimeout<T>(label: string, call: (signal: AbortSignal) 
   try {
     return await call(AbortSignal.timeout(TIMEOUT_MS))
   } catch (error) {
-    if (error instanceof DOMException && (error.name === "TimeoutError" || error.name === "AbortError")) {
+    // Only our own timeout becomes BackendTimeoutError. An AbortError means someone else
+    // cancelled the request (e.g. Next aborting a prerender pass): let it propagate unchanged.
+    if (error instanceof DOMException && error.name === "TimeoutError") {
       throw new BackendTimeoutError(`Backend did not respond within ${TIMEOUT_MS} ms (${label})`, { cause: error })
     }
     throw error

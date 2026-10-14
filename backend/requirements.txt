@@ -2,4 +2,5 @@ Django==6.1.2
 djangorestframework==3.18.3
 drf-spectacular==0.30.0
 psycopg[binary]==3.3.6
-redis==8.1.0
+redis==6.4.0  # newest allowed by kombu[redis] (Celery transport): redis<6.5
+celery[redis]==5.6.3

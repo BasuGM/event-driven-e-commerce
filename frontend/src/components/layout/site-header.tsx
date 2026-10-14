@@ -1,6 +1,8 @@
 import { Store } from "lucide-react"
 import Link from "next/link"
+import { Suspense } from "react"
 
+import { HeaderAccount, HeaderAccountSkeleton } from "./header-account"
 import { MobileNav } from "./mobile-nav"
 import { NAV_ITEMS } from "./nav-items"
 import { NavLink } from "./nav-link"
@@ -25,7 +27,10 @@ export function SiteHeader() {
             <NavLink key={item.label} item={item} />
           ))}
         </nav>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-1">
+          <Suspense fallback={<HeaderAccountSkeleton />}>
+            <HeaderAccount />
+          </Suspense>
           <ThemeToggle />
         </div>
       </div>

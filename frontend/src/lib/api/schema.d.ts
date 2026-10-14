@@ -4,6 +4,146 @@
  */
 
 export interface paths {
+    "/api/auth/csrf/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a CSRF token (sets the csrftoken cookie)
+         * @description Sets the csrftoken cookie. The browser sends it back as X-CSRFToken on unsafe requests.
+         */
+        get: operations["auth_csrf_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/login/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Log in with email and password */
+        post: operations["auth_login_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/logout/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Log out */
+        post: operations["auth_logout_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/me/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The logged-in user, or null */
+        get: operations["auth_me_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/register/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create an account and log in */
+        post: operations["auth_register_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cart/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Your cart with current prices and availability */
+        get: operations["cart_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cart/items/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add an offer to your cart */
+        post: operations["cart_items_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cart/items/{item_id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a line */
+        delete: operations["cart_items_destroy"];
+        options?: never;
+        head?: never;
+        /** Change a line's quantity */
+        patch: operations["cart_items_partial_update"];
+        trace?: never;
+    };
     "/api/categories/": {
         parameters: {
             query?: never;
@@ -21,6 +161,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/checkout/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Place an order from your cart (holds stock until you pay) */
+        post: operations["checkout_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health/": {
         parameters: {
             query?: never;
@@ -32,6 +189,74 @@ export interface paths {
         get: operations["health_retrieve"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/orders/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Your orders, newest first */
+        get: operations["orders_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/orders/{order_id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One of your orders */
+        get: operations["orders_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/orders/{order_id}/cancel/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel an unpaid order (returns its stock) */
+        post: operations["orders_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/orders/{order_id}/pay/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Simulate a payment (dev/test only: ALLOW_FAKE_PAYMENTS) */
+        post: operations["orders_pay_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -110,6 +335,60 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AddCartItemRequest: {
+            offer_id: number;
+            /** @default 1 */
+            quantity: number;
+        };
+        /** @enum {unknown} */
+        BlankEnum: "";
+        Cart: {
+            lines: components["schemas"]["CartLine"][];
+            /** @description Total units */
+            item_count: number;
+            /** Format: decimal */
+            subtotal: string;
+            /** Format: decimal */
+            freight_total: string;
+            /** Format: decimal */
+            total: string;
+            can_checkout: boolean;
+        };
+        CartLine: {
+            id: number;
+            offer_id: number;
+            product: components["schemas"]["CartProduct"];
+            seller: components["schemas"]["CartSeller"];
+            quantity: number;
+            /** Format: decimal */
+            unit_price: string;
+            /** Format: decimal */
+            unit_freight: string;
+            /** Format: decimal */
+            line_total: string;
+            /** Format: decimal */
+            line_freight: string;
+            /** @description Units currently in stock (not reserved for you) */
+            available: number;
+            /**
+             * @description Set when checkout would fail for this line right now
+             *
+             *     * `out_of_stock` - out_of_stock
+             *     * `insufficient_stock` - insufficient_stock
+             */
+            warning: (components["schemas"]["WarningEnum"] | components["schemas"]["NullEnum"]) | null;
+        };
+        CartProduct: {
+            slug: string;
+            name: string;
+            category: components["schemas"]["CategoryRef"] | null;
+        };
+        CartSeller: {
+            /** @description First 8 chars of the Olist seller id */
+            id: string;
+            city: string;
+            state: string;
+        };
         Category: {
             readonly slug: string;
             readonly label: string;
@@ -159,11 +438,39 @@ export interface components {
              */
             readonly group: components["schemas"]["GroupEnum"];
         };
+        CheckoutRequest: {
+            shipping: components["schemas"]["ShippingAddressRequest"];
+        };
+        /**
+         * @description * `out_of_stock` - out_of_stock
+         *     * `reservation_expired` - reservation_expired
+         *     * `invalid_transition` - invalid_transition
+         *     * `idempotency_conflict` - idempotency_conflict
+         *     * `empty_cart` - empty_cart
+         * @enum {string}
+         */
+        CodeEnum: "out_of_stock" | "reservation_expired" | "invalid_transition" | "idempotency_conflict" | "empty_cart";
+        Csrf: {
+            readonly csrf_token: string;
+        };
         Dimensions: {
             weight_g: number | null;
             length_cm: number | null;
             width_cm: number | null;
             height_cm: number | null;
+        };
+        /** @description Body of every 409 (and empty-cart 400) from the order flow. */
+        DomainError: {
+            code: components["schemas"]["CodeEnum"];
+            detail: string;
+            lines?: components["schemas"]["ErrorLine"][];
+            current_status?: string;
+        };
+        ErrorLine: {
+            offer_id: number;
+            product: string;
+            requested: number;
+            available: number;
         };
         /**
          * @description * `appliances` - appliances
@@ -201,6 +508,18 @@ export interface components {
          * @enum {string}
          */
         HealthStatusEnum: "ok" | "error";
+        LoginRequest: {
+            /** Format: email */
+            email: string;
+            password: string;
+        };
+        Me: {
+            readonly user: components["schemas"]["User"] | null;
+            /** @description Units in your cart (0 when logged out) */
+            readonly cart_count: number;
+        };
+        /** @enum {unknown} */
+        NullEnum: null;
         Offer: {
             readonly id: number;
             readonly seller_id: string;
@@ -212,6 +531,99 @@ export interface components {
              */
             readonly price: string;
             readonly in_stock: boolean;
+        };
+        /**
+         * @description Expects an order from ``selectors.orders_with_totals()`` with items (product, category,
+         *     seller), status history and reservations prefetched.
+         *
+         *     Money comes from DB annotations through DecimalFields: a Decimal returned by a
+         *     SerializerMethodField would be rendered as a JSON float by DRF's encoder.
+         */
+        OrderDetail: {
+            id: string;
+            readonly status: components["schemas"]["OrderStatusEnum"];
+            /** Format: date-time */
+            readonly purchased_at: string;
+            /** Format: date-time */
+            readonly approved_at: string | null;
+            readonly lines: components["schemas"]["OrderLine"][];
+            item_count: number;
+            /** Format: decimal */
+            items_total: string;
+            /** Format: decimal */
+            freight_total: string;
+            /** Format: decimal */
+            total: string;
+            shipping: components["schemas"]["Shipping"];
+            status_history: components["schemas"]["StatusHistory"][];
+            /** Format: date-time */
+            reservation_expires_at: string | null;
+            readonly can_pay: boolean;
+            readonly can_cancel: boolean;
+            readonly payments_enabled: boolean;
+        };
+        OrderLine: {
+            product_slug: string;
+            product_name: string;
+            category: components["schemas"]["CategoryRef"] | null;
+            seller_id: string;
+            seller_city: string;
+            seller_state: string;
+            quantity: number;
+            /** Format: decimal */
+            unit_price: string;
+            /** Format: decimal */
+            unit_freight: string;
+            /** Format: decimal */
+            line_total: string;
+        };
+        OrderList: {
+            id: string;
+            readonly status: components["schemas"]["OrderStatusEnum"];
+            /** Format: date-time */
+            readonly purchased_at: string;
+            item_count: number;
+            /** Format: decimal */
+            items_total: string;
+            /** Format: decimal */
+            freight_total: string;
+            /** Format: decimal */
+            total: string;
+            /** Format: date-time */
+            reservation_expires_at: string | null;
+        };
+        /**
+         * @description * `created` - Created
+         *     * `approved` - Approved
+         *     * `invoiced` - Invoiced
+         *     * `processing` - Processing
+         *     * `shipped` - Shipped
+         *     * `delivered` - Delivered
+         *     * `canceled` - Canceled
+         *     * `unavailable` - Unavailable
+         * @enum {string}
+         */
+        OrderStatusEnum: "created" | "approved" | "invoiced" | "processing" | "shipped" | "delivered" | "canceled" | "unavailable";
+        /**
+         * @description * `success` - success
+         *     * `fail` - fail
+         * @enum {string}
+         */
+        OutcomeEnum: "success" | "fail";
+        PaginatedOrderListList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["OrderList"][];
         };
         PaginatedProductListList: {
             /** @example 123 */
@@ -242,6 +654,12 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["ProductReview"][];
+        };
+        PatchedUpdateCartItemRequest: {
+            quantity?: number;
+        };
+        PayRequest: {
+            outcome: components["schemas"]["OutcomeEnum"];
         };
         ProductDetail: {
             readonly slug: string;
@@ -288,12 +706,92 @@ export interface components {
             /** Format: date */
             readonly created_date: string;
         };
+        RegisterRequest: {
+            name: string;
+            /** Format: email */
+            email: string;
+            password: string;
+        };
+        Shipping: {
+            full_name: string;
+            street: string;
+            city: string;
+            state: string;
+            zip_code: string;
+        };
+        ShippingAddressRequest: {
+            full_name: string;
+            /** @description Street, number and complement */
+            street: string;
+            city: string;
+            state: components["schemas"]["StateEnum"];
+            /** @description CEP, e.g. 01310-100 */
+            zip_code: string;
+        };
+        /**
+         * @description * `AC` - AC
+         *     * `AL` - AL
+         *     * `AP` - AP
+         *     * `AM` - AM
+         *     * `BA` - BA
+         *     * `CE` - CE
+         *     * `DF` - DF
+         *     * `ES` - ES
+         *     * `GO` - GO
+         *     * `MA` - MA
+         *     * `MT` - MT
+         *     * `MS` - MS
+         *     * `MG` - MG
+         *     * `PA` - PA
+         *     * `PB` - PB
+         *     * `PR` - PR
+         *     * `PE` - PE
+         *     * `PI` - PI
+         *     * `RJ` - RJ
+         *     * `RN` - RN
+         *     * `RS` - RS
+         *     * `RO` - RO
+         *     * `RR` - RR
+         *     * `SC` - SC
+         *     * `SP` - SP
+         *     * `SE` - SE
+         *     * `TO` - TO
+         * @enum {string}
+         */
+        StateEnum: "AC" | "AL" | "AP" | "AM" | "BA" | "CE" | "DF" | "ES" | "GO" | "MA" | "MT" | "MS" | "MG" | "PA" | "PB" | "PR" | "PE" | "PI" | "RJ" | "RN" | "RS" | "RO" | "RR" | "SC" | "SP" | "SE" | "TO";
         Stats: {
             products: number;
             orders: number;
             customers: number;
             sellers: number;
         };
+        StatusHistory: {
+            from_status: components["schemas"]["OrderStatusEnum"] | components["schemas"]["BlankEnum"];
+            readonly to_status: components["schemas"]["OrderStatusEnum"];
+            readonly reason: string;
+            /** Format: date-time */
+            readonly created_at: string;
+        };
+        User: {
+            readonly id: number;
+            /**
+             * Email address
+             * Format: email
+             */
+            readonly email: string;
+            name: string;
+            /**
+             * Staff status
+             * @description Designates whether the user can log into this admin site.
+             */
+            readonly is_staff: boolean;
+        };
+        /**
+         * @description * `out_of_stock` - out_of_stock
+         *     * `insufficient_stock` - insufficient_stock
+         * @enum {string}
+         */
+        WarningEnum: "out_of_stock" | "insufficient_stock";
     };
     responses: never;
     parameters: never;
@@ -303,6 +801,203 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    auth_csrf_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Csrf"];
+                };
+            };
+        };
+    };
+    auth_login_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["LoginRequest"];
+                "multipart/form-data": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+        };
+    };
+    auth_logout_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_me_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Me"];
+                };
+            };
+        };
+    };
+    auth_register_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["RegisterRequest"];
+                "multipart/form-data": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+        };
+    };
+    cart_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cart"];
+                };
+            };
+        };
+    };
+    cart_items_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddCartItemRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["AddCartItemRequest"];
+                "multipart/form-data": components["schemas"]["AddCartItemRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cart"];
+                };
+            };
+        };
+    };
+    cart_items_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    cart_items_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedUpdateCartItemRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedUpdateCartItemRequest"];
+                "multipart/form-data": components["schemas"]["PatchedUpdateCartItemRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cart"];
+                };
+            };
+        };
+    };
     categories_list: {
         parameters: {
             query?: never;
@@ -318,6 +1013,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Category"][];
+                };
+            };
+        };
+    };
+    checkout_create: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Unique per checkout attempt (8-255 chars). Retries reuse it. */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckoutRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["CheckoutRequest"];
+                "multipart/form-data": components["schemas"]["CheckoutRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderDetail"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainError"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainError"];
                 };
             };
         };
@@ -345,6 +1084,115 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    orders_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedOrderListList"];
+                };
+            };
+        };
+    };
+    orders_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderDetail"];
+                };
+            };
+        };
+    };
+    orders_cancel_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderDetail"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainError"];
+                };
+            };
+        };
+    };
+    orders_pay_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["PayRequest"];
+                "multipart/form-data": components["schemas"]["PayRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderDetail"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainError"];
                 };
             };
         };

@@ -21,7 +21,7 @@ folder is gitignored. The geolocation CSV is not used yet.
 
 ```sh
 cp .env.example .env   # adjust host ports here if 5432/6379/8000/3000 are taken
-make up                # build and start db, redis, backend, frontend
+make up                # build and start db, redis, backend, Celery worker + beat, frontend
 make reset             # create the schema, import ~2,000 orders, create dev users
 ```
 
@@ -43,5 +43,15 @@ Olist has no product names, prices or stock, so the import generates them determ
 
 ## Dev login
 
-`make reset` / `make seed` create three dev-only accounts: `admin` (superuser), `staff` and
-`customer`. The password is `DEV_USER_PASSWORD` from `.env` (default `devpass123`).
+`make reset` / `make seed` create three dev-only accounts — `admin@example.com` (superuser),
+`staff@example.com` and `customer@example.com` — all with the password `DEV_USER_PASSWORD` from
+`.env` (default `devpass123`). Log in on the site with the email; the Django admin accepts the
+username (`admin`).
+
+## Buying something (dev)
+
+Log in as `customer@example.com`, open a product, **Add to cart** on an offer, then **Cart →
+Checkout**. Placing the order holds the stock for 15 minutes (`RESERVATION_TTL_MINUTES`). On the
+order page use **Simulate payment success / failure** (dev only, `ALLOW_FAKE_PAYMENTS`). If you
+don't pay, the Celery `beat` + `worker` services cancel the order and return the stock within a
+minute of expiry (`docker compose logs -f worker`).

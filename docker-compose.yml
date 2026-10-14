@@ -38,6 +38,33 @@ services:
       redis:
         condition: service_healthy
 
+  # Celery worker + beat (scheduler) share the backend image and code.
+  worker:
+    build: ./backend
+    env_file: .env
+    command: celery -A config worker -l info --concurrency 2
+    volumes:
+      - ./backend:/app
+      - ./data:/data:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  beat:
+    build: ./backend
+    env_file: .env
+    # Schedule state in /tmp so beat never writes into the bind-mounted source tree
+    command: celery -A config beat -l info -s /tmp/celerybeat-schedule
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   frontend:
     build: ./frontend
     env_file: .env
@@ -60,6 +87,8 @@ services:
     environment:
       BASE_URL: http://frontend:3000
       CI: "1"
+      E2E_USER_EMAIL: customer@example.com
+      E2E_USER_PASSWORD: ${DEV_USER_PASSWORD:-devpass123}
     command: ["sh", "e2e/run.sh"]
     volumes:
       - ./frontend:/app

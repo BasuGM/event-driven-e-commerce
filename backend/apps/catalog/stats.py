@@ -10,9 +10,13 @@ on unchanged data writes nothing and reports 0.
 
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 
-from django.db import connection
+from django.db import OperationalError, connection, transaction
+
+logger = logging.getLogger(__name__)
 
 # Deterministic synthetic stock from the two Olist IDs: md5 -> 28-bit int (always positive).
 # One bucket in ten is out of stock; the rest get 1..50 units.
@@ -39,6 +43,11 @@ WITH pairs AS (
              + percentile_disc(0.5) WITHIN GROUP (ORDER BY oi.price DESC)) / 2,
             2
         ) AS price,
+        round(
+            (percentile_disc(0.5) WITHIN GROUP (ORDER BY oi.freight_value)
+             + percentile_disc(0.5) WITHIN GROUP (ORDER BY oi.freight_value DESC)) / 2,
+            2
+        ) AS freight,
         p.external_id AS product_ext,
         s.external_id AS seller_ext
     FROM orders_orderitem oi
@@ -46,13 +55,15 @@ WITH pairs AS (
     JOIN catalog_seller s ON s.id = oi.seller_id
     GROUP BY oi.product_id, oi.seller_id, p.external_id, s.external_id
 )
-INSERT INTO catalog_offer (product_id, seller_id, price, stock)
-SELECT product_id, seller_id, price, {stock_sql("product_ext", "seller_ext")}
+INSERT INTO catalog_offer (product_id, seller_id, price, freight, stock)
+SELECT product_id, seller_id, price, freight, {stock_sql("product_ext", "seller_ext")}
 FROM pairs
+-- Stock is only *initialised* here. Once an offer exists its stock belongs to the order flow
+-- (reservations decrement it), so a re-seed must never overwrite it.
 ON CONFLICT (product_id, seller_id) DO UPDATE
-    SET price = EXCLUDED.price, stock = EXCLUDED.stock
-    WHERE (catalog_offer.price, catalog_offer.stock)
-        IS DISTINCT FROM (EXCLUDED.price, EXCLUDED.stock)
+    SET price = EXCLUDED.price, freight = EXCLUDED.freight
+    WHERE (catalog_offer.price, catalog_offer.freight)
+        IS DISTINCT FROM (EXCLUDED.price, EXCLUDED.freight)
 """
 
 # Each statement recomputes one group of columns for *every* product (LEFT JOIN), so a product
@@ -65,6 +76,7 @@ FROM (
     FROM catalog_product p
     LEFT JOIN orders_orderitem oi ON oi.product_id = p.id
     LEFT JOIN orders_order o ON o.id = oi.order_id
+    {scope}
     GROUP BY p.id
 ) v
 WHERE p.id = v.id
@@ -84,6 +96,7 @@ FROM (
         FROM orders_review r
         JOIN orders_orderitem oi ON oi.order_id = r.order_id
     ) pr ON pr.product_id = p.id
+    {scope}
     GROUP BY p.id
 ) v
 WHERE p.id = v.id
@@ -97,6 +110,7 @@ FROM (
     SELECT p.id, min(ofr.price) FILTER (WHERE ofr.stock > 0) AS min_price
     FROM catalog_product p
     LEFT JOIN catalog_offer ofr ON ofr.product_id = p.id
+    {scope}
     GROUP BY p.id
 ) v
 WHERE p.id = v.id AND p.min_price IS DISTINCT FROM v.min_price
@@ -114,6 +128,7 @@ FROM (
                   || coalesce(replace(c.name, '_', ' '), '')), 'B') AS vector
     FROM catalog_product p
     LEFT JOIN catalog_category c ON c.id = p.category_id
+    {scope}
 ) v
 WHERE p.id = v.id AND p.search_vector IS DISTINCT FROM v.vector
 """
@@ -141,12 +156,64 @@ def refresh_offers_and_stats() -> StatsResult:
         after = cursor.fetchone()[0]
 
         changed = {}
-        for label, sql in (
-            ("sales", SALES_SQL),
-            ("ratings", RATINGS_SQL),
-            ("min_price", MIN_PRICE_SQL),
-            ("search", SEARCH_VECTOR_SQL),
-        ):
-            cursor.execute(sql)
+        for label, sql in PRODUCT_STATS_SQL.items():
+            cursor.execute(sql.format(scope=""))
             changed[label] = cursor.rowcount
     return StatsResult(offers_written, after - before, after, changed)
+
+
+PRODUCT_STATS_SQL = {
+    "sales": SALES_SQL,
+    "ratings": RATINGS_SQL,
+    "min_price": MIN_PRICE_SQL,
+    "search": SEARCH_VECTOR_SQL,
+}
+# What an order-flow change (checkout, payment, release) can affect. Names and categories don't
+# change there, so the search vector is left alone.
+ORDER_FLOW_STATS = ("sales", "ratings", "min_price")
+_RETRYABLE_SQLSTATES = {"40P01", "40001"}  # deadlock_detected, serialization_failure
+
+
+def refresh_product_stats(
+    product_ids, *, labels=ORDER_FLOW_STATS, attempts: int = 3
+) -> dict[str, int]:
+    """Recompute denormalised stats for just these products, in its own transaction.
+
+    Products are locked in ascending id order first (the project-wide lock-order rule), so two
+    concurrent refreshes over overlapping sets queue up instead of deadlocking. As a second line
+    of defence a deadlock/serialization failure is retried: the refresh is a pure recompute.
+    """
+    ids = sorted({int(pk) for pk in product_ids})
+    if not ids:
+        return {}
+    for attempt in range(1, attempts + 1):
+        try:
+            with transaction.atomic(), connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT id FROM catalog_product WHERE id = ANY(%s) ORDER BY id FOR UPDATE",
+                    [ids],
+                )
+                changed = {}
+                for label in labels:
+                    cursor.execute(
+                        PRODUCT_STATS_SQL[label].format(scope="WHERE p.id = ANY(%s)"), [ids]
+                    )
+                    changed[label] = cursor.rowcount
+                return changed
+        except OperationalError as exc:
+            sqlstate = getattr(getattr(exc, "__cause__", None), "sqlstate", None)
+            if sqlstate not in _RETRYABLE_SQLSTATES or attempt == attempts:
+                raise
+            logger.warning("Stats refresh hit %s, retrying (%d/%d)", sqlstate, attempt, attempts)
+            time.sleep(0.05 * attempt)
+    raise AssertionError("unreachable")
+
+
+def refresh_product_stats_on_commit(product_ids) -> None:
+    """Schedule a refresh after the current transaction commits.
+
+    robust=True: a failing refresh is logged and swallowed, so it can never turn an already
+    committed checkout/payment into an error response. Stats self-heal on the next refresh.
+    """
+    ids = sorted(set(product_ids))
+    transaction.on_commit(lambda: refresh_product_stats(ids), robust=True)

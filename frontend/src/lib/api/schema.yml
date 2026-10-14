@@ -4,6 +4,198 @@ info:
   version: 0.1.0
   description: E-commerce platform seeded with the Olist Brazilian E-Commerce dataset.
 paths:
+  /api/auth/csrf/:
+    get:
+      operationId: auth_csrf_retrieve
+      description: Sets the csrftoken cookie. The browser sends it back as X-CSRFToken
+        on unsafe requests.
+      summary: Get a CSRF token (sets the csrftoken cookie)
+      tags:
+      - auth
+      security:
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Csrf'
+          description: ''
+  /api/auth/login/:
+    post:
+      operationId: auth_login_create
+      summary: Log in with email and password
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+  /api/auth/logout/:
+    post:
+      operationId: auth_logout_create
+      summary: Log out
+      tags:
+      - auth
+      security:
+      - cookieAuth: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/auth/me/:
+    get:
+      operationId: auth_me_retrieve
+      summary: The logged-in user, or null
+      tags:
+      - auth
+      security:
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+          description: ''
+  /api/auth/register/:
+    post:
+      operationId: auth_register_create
+      summary: Create an account and log in
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+  /api/cart/:
+    get:
+      operationId: cart_retrieve
+      summary: Your cart with current prices and availability
+      tags:
+      - cart
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+          description: ''
+  /api/cart/items/:
+    post:
+      operationId: cart_items_create
+      summary: Add an offer to your cart
+      tags:
+      - cart
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCartItemRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AddCartItemRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AddCartItemRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+          description: ''
+  /api/cart/items/{item_id}/:
+    patch:
+      operationId: cart_items_partial_update
+      summary: Change a line's quantity
+      parameters:
+      - in: path
+        name: item_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - cart
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUpdateCartItemRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUpdateCartItemRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUpdateCartItemRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+          description: ''
+    delete:
+      operationId: cart_items_destroy
+      summary: Remove a line
+      parameters:
+      - in: path
+        name: item_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - cart
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/categories/:
     get:
       operationId: categories_list
@@ -18,6 +210,52 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Category'
+          description: ''
+  /api/checkout/:
+    post:
+      operationId: checkout_create
+      summary: Place an order from your cart (holds stock until you pay)
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        schema:
+          type: string
+        description: Unique per checkout attempt (8-255 chars). Retries reuse it.
+        required: true
+      tags:
+      - checkout
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CheckoutRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CheckoutRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDetail'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DomainError'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DomainError'
           description: ''
   /api/health/:
     get:
@@ -37,6 +275,121 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Health'
+          description: ''
+  /api/orders/:
+    get:
+      operationId: orders_list
+      summary: Your orders, newest first
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - orders
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedOrderListList'
+          description: ''
+  /api/orders/{order_id}/:
+    get:
+      operationId: orders_retrieve
+      summary: One of your orders
+      parameters:
+      - in: path
+        name: order_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - orders
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDetail'
+          description: ''
+  /api/orders/{order_id}/cancel/:
+    post:
+      operationId: orders_cancel_create
+      summary: Cancel an unpaid order (returns its stock)
+      parameters:
+      - in: path
+        name: order_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - orders
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDetail'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DomainError'
+          description: ''
+  /api/orders/{order_id}/pay/:
+    post:
+      operationId: orders_pay_create
+      summary: 'Simulate a payment (dev/test only: ALLOW_FAKE_PAYMENTS)'
+      parameters:
+      - in: path
+        name: order_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - orders
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PayRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PayRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PayRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDetail'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DomainError'
           description: ''
   /api/products/:
     get:
@@ -185,6 +538,135 @@ paths:
           description: ''
 components:
   schemas:
+    AddCartItemRequest:
+      type: object
+      properties:
+        offer_id:
+          type: integer
+        quantity:
+          type: integer
+          maximum: 10
+          minimum: 1
+          default: 1
+      required:
+      - offer_id
+    BlankEnum:
+      enum:
+      - ''
+    Cart:
+      type: object
+      properties:
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartLine'
+        item_count:
+          type: integer
+          description: Total units
+        subtotal:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        freight_total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        can_checkout:
+          type: boolean
+      required:
+      - can_checkout
+      - freight_total
+      - item_count
+      - lines
+      - subtotal
+      - total
+    CartLine:
+      type: object
+      properties:
+        id:
+          type: integer
+        offer_id:
+          type: integer
+        product:
+          $ref: '#/components/schemas/CartProduct'
+        seller:
+          $ref: '#/components/schemas/CartSeller'
+        quantity:
+          type: integer
+        unit_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        unit_freight:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        line_total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        line_freight:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        available:
+          type: integer
+          description: Units currently in stock (not reserved for you)
+        warning:
+          nullable: true
+          description: |-
+            Set when checkout would fail for this line right now
+
+            * `out_of_stock` - out_of_stock
+            * `insufficient_stock` - insufficient_stock
+          oneOf:
+          - $ref: '#/components/schemas/WarningEnum'
+          - $ref: '#/components/schemas/NullEnum'
+      required:
+      - available
+      - id
+      - line_freight
+      - line_total
+      - offer_id
+      - product
+      - quantity
+      - seller
+      - unit_freight
+      - unit_price
+      - warning
+    CartProduct:
+      type: object
+      properties:
+        slug:
+          type: string
+        name:
+          type: string
+        category:
+          allOf:
+          - $ref: '#/components/schemas/CategoryRef'
+          nullable: true
+      required:
+      - category
+      - name
+      - slug
+    CartSeller:
+      type: object
+      properties:
+        id:
+          type: string
+          description: First 8 chars of the Olist seller id
+        city:
+          type: string
+        state:
+          type: string
+      required:
+      - city
+      - id
+      - state
     Category:
       type: object
       properties:
@@ -261,6 +743,35 @@ components:
       - group
       - label
       - slug
+    CheckoutRequest:
+      type: object
+      properties:
+        shipping:
+          $ref: '#/components/schemas/ShippingAddressRequest'
+      required:
+      - shipping
+    CodeEnum:
+      enum:
+      - out_of_stock
+      - reservation_expired
+      - invalid_transition
+      - idempotency_conflict
+      - empty_cart
+      type: string
+      description: |-
+        * `out_of_stock` - out_of_stock
+        * `reservation_expired` - reservation_expired
+        * `invalid_transition` - invalid_transition
+        * `idempotency_conflict` - idempotency_conflict
+        * `empty_cart` - empty_cart
+    Csrf:
+      type: object
+      properties:
+        csrf_token:
+          type: string
+          readOnly: true
+      required:
+      - csrf_token
     Dimensions:
       type: object
       properties:
@@ -281,6 +792,39 @@ components:
       - length_cm
       - weight_g
       - width_cm
+    DomainError:
+      type: object
+      description: Body of every 409 (and empty-cart 400) from the order flow.
+      properties:
+        code:
+          $ref: '#/components/schemas/CodeEnum'
+        detail:
+          type: string
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/ErrorLine'
+        current_status:
+          type: string
+      required:
+      - code
+      - detail
+    ErrorLine:
+      type: object
+      properties:
+        offer_id:
+          type: integer
+        product:
+          type: string
+        requested:
+          type: integer
+        available:
+          type: integer
+      required:
+      - available
+      - offer_id
+      - product
+      - requested
     GroupEnum:
       enum:
       - appliances
@@ -342,6 +886,37 @@ components:
       description: |-
         * `ok` - ok
         * `error` - error
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+        password:
+          type: string
+          minLength: 1
+      required:
+      - email
+      - password
+    Me:
+      type: object
+      properties:
+        user:
+          allOf:
+          - $ref: '#/components/schemas/User'
+          readOnly: true
+          nullable: true
+        cart_count:
+          type: integer
+          readOnly: true
+          description: Units in your cart (0 when logged out)
+      required:
+      - cart_count
+      - user
+    NullEnum:
+      enum:
+      - null
     Offer:
       type: object
       properties:
@@ -373,6 +948,217 @@ components:
       - seller_city
       - seller_id
       - seller_state
+    OrderDetail:
+      type: object
+      description: |-
+        Expects an order from ``selectors.orders_with_totals()`` with items (product, category,
+        seller), status history and reservations prefetched.
+
+        Money comes from DB annotations through DecimalFields: a Decimal returned by a
+        SerializerMethodField would be rendered as a JSON float by DRF's encoder.
+      properties:
+        id:
+          type: string
+        status:
+          allOf:
+          - $ref: '#/components/schemas/OrderStatusEnum'
+          readOnly: true
+        purchased_at:
+          type: string
+          format: date-time
+          readOnly: true
+        approved_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderLine'
+          readOnly: true
+        item_count:
+          type: integer
+        items_total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        freight_total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        shipping:
+          $ref: '#/components/schemas/Shipping'
+        status_history:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatusHistory'
+        reservation_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        can_pay:
+          type: boolean
+          readOnly: true
+        can_cancel:
+          type: boolean
+          readOnly: true
+        payments_enabled:
+          type: boolean
+          readOnly: true
+      required:
+      - approved_at
+      - can_cancel
+      - can_pay
+      - freight_total
+      - id
+      - item_count
+      - items_total
+      - lines
+      - payments_enabled
+      - purchased_at
+      - reservation_expires_at
+      - shipping
+      - status
+      - status_history
+      - total
+    OrderLine:
+      type: object
+      properties:
+        product_slug:
+          type: string
+        product_name:
+          type: string
+        category:
+          allOf:
+          - $ref: '#/components/schemas/CategoryRef'
+          nullable: true
+        seller_id:
+          type: string
+        seller_city:
+          type: string
+        seller_state:
+          type: string
+        quantity:
+          type: integer
+        unit_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        unit_freight:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        line_total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+      required:
+      - category
+      - line_total
+      - product_name
+      - product_slug
+      - quantity
+      - seller_city
+      - seller_id
+      - seller_state
+      - unit_freight
+      - unit_price
+    OrderList:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          allOf:
+          - $ref: '#/components/schemas/OrderStatusEnum'
+          readOnly: true
+        purchased_at:
+          type: string
+          format: date-time
+          readOnly: true
+        item_count:
+          type: integer
+        items_total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        freight_total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        reservation_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - freight_total
+      - id
+      - item_count
+      - items_total
+      - purchased_at
+      - reservation_expires_at
+      - status
+      - total
+    OrderStatusEnum:
+      enum:
+      - created
+      - approved
+      - invoiced
+      - processing
+      - shipped
+      - delivered
+      - canceled
+      - unavailable
+      type: string
+      description: |-
+        * `created` - Created
+        * `approved` - Approved
+        * `invoiced` - Invoiced
+        * `processing` - Processing
+        * `shipped` - Shipped
+        * `delivered` - Delivered
+        * `canceled` - Canceled
+        * `unavailable` - Unavailable
+    OutcomeEnum:
+      enum:
+      - success
+      - fail
+      type: string
+      description: |-
+        * `success` - success
+        * `fail` - fail
+    PaginatedOrderListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderList'
     PaginatedProductListList:
       type: object
       required:
@@ -419,6 +1205,20 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ProductReview'
+    PatchedUpdateCartItemRequest:
+      type: object
+      properties:
+        quantity:
+          type: integer
+          maximum: 10
+          minimum: 1
+    PayRequest:
+      type: object
+      properties:
+        outcome:
+          $ref: '#/components/schemas/OutcomeEnum'
+      required:
+      - outcome
     ProductDetail:
       type: object
       properties:
@@ -562,6 +1362,130 @@ components:
       - message
       - score
       - title
+    RegisterRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          minLength: 1
+        password:
+          type: string
+          minLength: 8
+      required:
+      - email
+      - name
+      - password
+    Shipping:
+      type: object
+      properties:
+        full_name:
+          type: string
+        street:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        zip_code:
+          type: string
+      required:
+      - city
+      - full_name
+      - state
+      - street
+      - zip_code
+    ShippingAddressRequest:
+      type: object
+      properties:
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        street:
+          type: string
+          minLength: 1
+          description: Street, number and complement
+          maxLength: 200
+        city:
+          type: string
+          minLength: 1
+          maxLength: 100
+        state:
+          $ref: '#/components/schemas/StateEnum'
+        zip_code:
+          type: string
+          minLength: 1
+          description: CEP, e.g. 01310-100
+          pattern: ^\d{5}-?\d{3}$
+      required:
+      - city
+      - full_name
+      - state
+      - street
+      - zip_code
+    StateEnum:
+      enum:
+      - AC
+      - AL
+      - AP
+      - AM
+      - BA
+      - CE
+      - DF
+      - ES
+      - GO
+      - MA
+      - MT
+      - MS
+      - MG
+      - PA
+      - PB
+      - PR
+      - PE
+      - PI
+      - RJ
+      - RN
+      - RS
+      - RO
+      - RR
+      - SC
+      - SP
+      - SE
+      - TO
+      type: string
+      description: |-
+        * `AC` - AC
+        * `AL` - AL
+        * `AP` - AP
+        * `AM` - AM
+        * `BA` - BA
+        * `CE` - CE
+        * `DF` - DF
+        * `ES` - ES
+        * `GO` - GO
+        * `MA` - MA
+        * `MT` - MT
+        * `MS` - MS
+        * `MG` - MG
+        * `PA` - PA
+        * `PB` - PB
+        * `PR` - PR
+        * `PE` - PE
+        * `PI` - PI
+        * `RJ` - RJ
+        * `RN` - RN
+        * `RS` - RS
+        * `RO` - RO
+        * `RR` - RR
+        * `SC` - SC
+        * `SP` - SP
+        * `SE` - SE
+        * `TO` - TO
     Stats:
       type: object
       properties:
@@ -578,3 +1502,62 @@ components:
       - orders
       - products
       - sellers
+    StatusHistory:
+      type: object
+      properties:
+        from_status:
+          oneOf:
+          - $ref: '#/components/schemas/OrderStatusEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        to_status:
+          allOf:
+          - $ref: '#/components/schemas/OrderStatusEnum'
+          readOnly: true
+        reason:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - from_status
+      - reason
+      - to_status
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+          title: Email address
+        name:
+          type: string
+        is_staff:
+          type: boolean
+          readOnly: true
+          title: Staff status
+          description: Designates whether the user can log into this admin site.
+      required:
+      - email
+      - id
+      - is_staff
+      - name
+    WarningEnum:
+      enum:
+      - out_of_stock
+      - insufficient_stock
+      type: string
+      description: |-
+        * `out_of_stock` - out_of_stock
+        * `insufficient_stock` - insufficient_stock
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
