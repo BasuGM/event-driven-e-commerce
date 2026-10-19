@@ -41,7 +41,10 @@ export default async function ShopPage({ searchParams }: PageProps<"/shop">) {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <SearchBox />
               <div className="flex items-center justify-between gap-2 sm:justify-end">
-                <MobileFilters categories={categories} />
+                <MobileFilters
+                  categories={categories}
+                  resultCount={result.status === "ok" ? result.page.count : 0}
+                />
                 <SortSelect />
               </div>
             </div>

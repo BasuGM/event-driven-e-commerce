@@ -23,7 +23,15 @@ const RATING_OPTIONS = [
   { value: "2", label: "2 stars & up" },
 ]
 
-export function FiltersPanel({ categories }: { categories: Category[] }) {
+/** `scrollCategories`: the sidebar scrolls the long category list on its own; the mobile sheet
+ * turns that off so the whole sheet scrolls as one. */
+export function FiltersPanel({
+  categories,
+  scrollCategories = true,
+}: {
+  categories: Category[]
+  scrollCategories?: boolean
+}) {
   const { filters, apply, clear } = useShopNavigation()
 
   return (
@@ -32,7 +40,7 @@ export function FiltersPanel({ categories }: { categories: Category[] }) {
         <h2 id="filter-category" className="text-sm font-medium">
           Category
         </h2>
-        <ul className="-mx-2 max-h-80 space-y-0.5 overflow-y-auto pr-1">
+        <ul className={cn("-mx-2 space-y-0.5", scrollCategories && "max-h-80 overflow-y-auto pr-1")}>
           <li>
             <CategoryLink href={shopHref(updateFilters(filters, { category: undefined }))} active={!filters.category}>
               All categories
