@@ -10,7 +10,8 @@ async function logIn(page: Page) {
     await page.getByLabel("Email").fill(EMAIL)
     await page.getByLabel("Password").fill(PASSWORD)
     await page.getByRole("button", { name: "Log in" }).click()
-    await expect(page).toHaveURL(/\/shop$/, { timeout: 5_000 })
+    // Match the pathname, not the whole URL: /\/shop$/ would also match /login?next=/shop
+    await expect(page).toHaveURL((url) => url.pathname === "/shop", { timeout: 5_000 })
   }).toPass({ timeout: 90_000 })
   await expect(page.getByRole("button", { name: /Account menu/ })).toBeVisible()
 }
@@ -36,7 +37,7 @@ test("log in → add to cart → checkout → simulate payment → approved", as
   // A product with stock, first offer you can buy
   await page.goto("/shop?in_stock=true")
   await page.locator('main a[href^="/shop/"]').first().click()
-  await expect(page).toHaveURL(/\/shop\/[a-z0-9-]+$/)
+  await expect(page).toHaveURL((url) => /^\/shop\/[a-z0-9-]+$/.test(url.pathname))
   const addButton = page.getByRole("button", { name: /^Add to cart/ }).first()
   await expect(async () => {
     await addButton.click()
@@ -47,7 +48,7 @@ test("log in → add to cart → checkout → simulate payment → approved", as
   // Cart → checkout
   await page.goto("/cart")
   await page.getByRole("link", { name: "Checkout" }).click()
-  await expect(page).toHaveURL(/\/checkout$/)
+  await expect(page).toHaveURL((url) => url.pathname === "/checkout")
   await page.getByLabel("Street and number").fill("Av. Paulista, 1000")
   await page.getByLabel("City").fill("São Paulo")
   await page.getByRole("combobox", { name: "State" }).click()
@@ -57,7 +58,7 @@ test("log in → add to cart → checkout → simulate payment → approved", as
   await page.getByRole("button", { name: "Place order" }).click()
 
   // Order page: held stock, then simulated payment
-  await expect(page).toHaveURL(/\/orders\/[0-9a-f]{32}$/, { timeout: 30_000 })
+  await expect(page).toHaveURL((url) => /^\/orders\/[0-9a-f]{32}$/.test(url.pathname), { timeout: 30_000 })
   const status = page.getByTestId("order-status")
   await expect(status).toHaveText("Awaiting payment")
   await expect(page.getByRole("timer")).toContainText("Stock held for")

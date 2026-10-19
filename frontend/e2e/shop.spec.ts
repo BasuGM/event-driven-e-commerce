@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test"
 
+// URL checks look at the pathname and parsed params, never a regex over the whole URL (which
+// would also match e.g. a login redirect carrying the target in ?next=).
+const onShop = (url: URL, param: string, value: string) =>
+  url.pathname === "/shop" && url.searchParams.get(param) === value
+
 test("browse: category filter → search → product → offers", async ({ page }) => {
   // Uncaught errors (e.g. hydration mismatches) fail the smoke test even if the UI looks fine
   const pageErrors: string[] = []
@@ -11,7 +16,7 @@ test("browse: category filter → search → product → offers", async ({ page 
 
   // Category filter (desktop sidebar)
   await page.getByRole("complementary", { name: "Filters" }).getByRole("link", { name: /Bed Bath Table/ }).click()
-  await expect(page).toHaveURL(/category=bed-bath-table/)
+  await expect(page).toHaveURL((url) => onShop(url, "category", "bed-bath-table"))
   await expect(page.getByRole("heading", { level: 1, name: "Bed Bath Table" })).toBeVisible()
 
   // Search for a word taken from the first result, so the test doesn't depend on generated names
@@ -25,16 +30,16 @@ test("browse: category filter → search → product → offers", async ({ page 
   await expect(async () => {
     await search.fill(term)
     await search.press("Enter")
-    await expect(page).toHaveURL(new RegExp(`q=${term}`), { timeout: 5_000 })
+    await expect(page).toHaveURL((url) => onShop(url, "q", term), { timeout: 5_000 })
   }).toPass({ timeout: 120_000 })
-  await expect(page).toHaveURL(/category=bed-bath-table/)
+  await expect(page).toHaveURL((url) => onShop(url, "category", "bed-bath-table"))
   await expect(page.getByText(new RegExp(`products? for “${term}”`, "i"))).toBeVisible()
 
   // Open the first matching product
   const result = products.first()
   const name = (await result.innerText()).trim()
   await result.click()
-  await expect(page).toHaveURL(/\/shop\/[a-z0-9-]+$/)
+  await expect(page).toHaveURL((url) => /^\/shop\/[a-z0-9-]+$/.test(url.pathname))
   await expect(page.getByRole("heading", { level: 1, name })).toBeVisible()
 
   // Offers table
