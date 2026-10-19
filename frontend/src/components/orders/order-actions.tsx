@@ -4,6 +4,17 @@ import { CreditCard, Loader2, XCircle } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useState, useTransition } from "react"
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { browserApi, ensureCsrf, NETWORK_PROBLEM, toProblem } from "@/lib/api/browser"
 
@@ -71,10 +82,26 @@ export function OrderActions({
         </div>
       )}
       {canCancel && (
-        <Button size="sm" variant="ghost" onClick={cancel} disabled={pending}>
-          {busy === "cancel" ? <Loader2 className="animate-spin" /> : <XCircle />}
-          Cancel order
-        </Button>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button size="sm" variant="ghost" disabled={pending}>
+              {busy === "cancel" ? <Loader2 className="animate-spin" /> : <XCircle />}
+              Cancel order
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Cancel this order?</AlertDialogTitle>
+              <AlertDialogDescription>Stock will be released.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep order</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" onClick={cancel}>
+                Cancel order
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       )}
       {error && (
         <p role="alert" className="text-sm text-destructive">
