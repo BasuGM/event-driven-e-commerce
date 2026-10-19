@@ -13,7 +13,7 @@ import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { browserApi, ensureCsrf, NETWORK_PROBLEM, toProblem, type ApiProblem } from "@/lib/api/browser"
-import type { CartLine } from "@/lib/api/client"
+import type { CartLine, Shipping } from "@/lib/api/client"
 import { currentAttempt, fingerprint, settleAttempt } from "@/lib/checkout-attempt"
 
 export const BR_STATES = [
@@ -45,12 +45,33 @@ const TEXT_FIELDS: { name: Path<ShippingValues>; label: string; autoComplete: st
 
 const CHECKOUT_TIMEOUT_MS = 15_000
 
-export function CheckoutForm({ lines, defaultName }: { lines: CartLine[]; defaultName: string }) {
+/** Form defaults: the account's name, plus the address of the last order (if any) to edit. */
+export function shippingDefaults(defaultName: string, last: Shipping | null): ShippingValues {
+  const state = BR_STATES.find((uf) => uf === last?.state) // unknown values stay unselected
+  return {
+    full_name: defaultName,
+    street: last?.street ?? "",
+    city: last?.city ?? "",
+    // undefined = "Choose…" placeholder; zod still requires a state on submit
+    state: state as ShippingValues["state"],
+    zip_code: last ? maskCep(last.zip_code) : "",
+  }
+}
+
+export function CheckoutForm({
+  lines,
+  defaultName,
+  lastShipping = null,
+}: {
+  lines: CartLine[]
+  defaultName: string
+  lastShipping?: Shipping | null
+}) {
   const router = useRouter()
   const [problem, setProblem] = useState<ApiProblem | null>(null)
   const form = useForm<ShippingValues>({
     resolver: zodResolver(shippingSchema),
-    defaultValues: { full_name: defaultName, street: "", city: "", state: undefined, zip_code: "" },
+    defaultValues: shippingDefaults(defaultName, lastShipping),
   })
 
   async function placeOrder(shipping: ShippingValues) {

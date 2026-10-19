@@ -4,7 +4,7 @@ import createClient from "openapi-fetch"
 
 import { loginHref } from "@/lib/urls"
 
-import { withTimeout, type Cart, type Me, type OrderDetail, type OrderPage } from "./client"
+import { withTimeout, type Cart, type Me, type OrderDetail, type OrderPage, type Shipping } from "./client"
 import type { paths } from "./schema"
 
 /** Thrown when the backend says we're not logged in (401). Pages turn it into a redirect. */
@@ -61,6 +61,13 @@ export async function getOrder(id: string): Promise<OrderDetail | null> {
   if (data) return data
   if (response.status === 404) return null
   return check(response, "order")
+}
+
+/** Shipping address of the visitor's most recent order (orders list newest first), or null. */
+export async function getLastShipping(): Promise<Shipping | null> {
+  const latest = (await getOrders(1)).results[0]
+  if (!latest) return null
+  return (await getOrder(latest.id))?.shipping ?? null
 }
 
 /** Load protected data; a 401 becomes a redirect to /login?next=<path>. */

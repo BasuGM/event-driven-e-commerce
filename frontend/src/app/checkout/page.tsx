@@ -7,13 +7,17 @@ import { CheckoutForm } from "@/components/checkout/checkout-form"
 import { PageHeader } from "@/components/layout/page-header"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
-import { getCart, getMe, orLogin } from "@/lib/api/server"
+import { getCart, getLastShipping, getMe, orLogin } from "@/lib/api/server"
 import { formatBRL } from "@/lib/format"
 
 export const metadata: Metadata = { title: "Checkout" }
 
 export default async function CheckoutPage() {
-  const [cart, me] = await orLogin(() => Promise.all([getCart(), getMe()]), "/checkout")
+  const [cart, me, lastShipping] = await orLogin(
+    // The address prefill is a convenience: if it fails, checkout still works with empty fields
+    () => Promise.all([getCart(), getMe(), getLastShipping().catch(() => null)]),
+    "/checkout",
+  )
   if (!cart.can_checkout) redirect("/cart") // empty, or something is out of stock
 
   return (
@@ -25,7 +29,7 @@ export default async function CheckoutPage() {
             <CardTitle>Shipping address</CardTitle>
           </CardHeader>
           <CardContent>
-            <CheckoutForm lines={cart.lines} defaultName={me.user?.name ?? ""} />
+            <CheckoutForm lines={cart.lines} defaultName={me.user?.name ?? ""} lastShipping={lastShipping} />
           </CardContent>
         </Card>
         <Card className="h-fit lg:sticky lg:top-20">
