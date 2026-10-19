@@ -1,5 +1,6 @@
 import { ShoppingBag } from "lucide-react"
 import Link from "next/link"
+import { connection } from "next/server"
 
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -9,6 +10,9 @@ import { UserMenu } from "./user-menu"
 
 /** Cart badge + account menu. Reads the session cookie, so it renders under <Suspense>. */
 export async function HeaderAccount() {
+  // Request time only (never a static/runtime prefetch stage): Node's fetch calls Date.now() when
+  // the /me body finishes, which partialPrefetching flags as sync IO during a runtime prefetch.
+  await connection()
   let me
   try {
     me = await getMe()
