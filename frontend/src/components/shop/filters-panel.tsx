@@ -11,7 +11,7 @@ import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import type { Category } from "@/lib/api/client"
 import { formatInteger } from "@/lib/format"
-import { hasActiveFilters, shopHref, updateFilters } from "@/lib/shop-params"
+import { hasActiveFilters, priceRangeError, shopHref, updateFilters } from "@/lib/shop-params"
 import { cn } from "@/lib/utils"
 
 import { useShopNavigation } from "./shop-navigation"
@@ -54,8 +54,7 @@ export function FiltersPanel({ categories }: { categories: Category[] }) {
 
       <Separator />
 
-      {/* Remount when the URL values change (e.g. Clear) so the inputs show the URL's state */}
-      <PriceRange key={`${filters.minPrice ?? ""}-${filters.maxPrice ?? ""}`} />
+      <PriceRange />
 
       <Separator />
 
@@ -123,11 +122,24 @@ function CategoryLink({
   )
 }
 
+/**
+ * Local drafts, applied only on submit (Enter or "Apply price") — never on blur, so moving from
+ * Min to Max doesn't navigate. The inputs stay mounted across URL updates (focus survives) and
+ * re-sync only when the URL's price values change, e.g. "Clear filters" or the back button.
+ */
 function PriceRange() {
   const { filters, apply } = useShopNavigation()
   const [min, setMin] = useState(filters.minPrice ?? "")
   const [max, setMax] = useState(filters.maxPrice ?? "")
-  const invalid = min !== "" && max !== "" && Number(min) > Number(max)
+  const [synced, setSynced] = useState({ min: filters.minPrice, max: filters.maxPrice })
+  if (synced.min !== filters.minPrice || synced.max !== filters.maxPrice) {
+    // Adjusting state during render (not in an effect) avoids a frame with stale values
+    setSynced({ min: filters.minPrice, max: filters.maxPrice })
+    setMin(filters.minPrice ?? "")
+    setMax(filters.maxPrice ?? "")
+  }
+  const error = priceRangeError({ minPrice: min, maxPrice: max })
+  const invalid = error !== null
 
   const commit = () => {
     if (invalid) return
@@ -140,44 +152,44 @@ function PriceRange() {
     <fieldset className="space-y-2">
       <legend className="text-sm font-medium">Price (R$)</legend>
       <form
-        className="flex items-center gap-2"
+        className="space-y-2"
         onSubmit={(event) => {
           event.preventDefault()
           commit()
         }}
       >
-        <Label htmlFor="filter-min-price" className="sr-only">
-          Minimum price
-        </Label>
-        <Input
-          id="filter-min-price"
-          inputMode="decimal"
-          placeholder="Min"
-          value={min}
-          onChange={(e) => setMin(e.target.value.replace(/[^\d.]/g, ""))}
-          onBlur={commit}
-          aria-invalid={invalid || undefined}
-        />
-        <span className="text-muted-foreground" aria-hidden>
-          –
-        </span>
-        <Label htmlFor="filter-max-price" className="sr-only">
-          Maximum price
-        </Label>
-        <Input
-          id="filter-max-price"
-          inputMode="decimal"
-          placeholder="Max"
-          value={max}
-          onChange={(e) => setMax(e.target.value.replace(/[^\d.]/g, ""))}
-          onBlur={commit}
-          aria-invalid={invalid || undefined}
-        />
-        <button type="submit" className="sr-only">
+        <div className="flex items-center gap-2">
+          <Label htmlFor="filter-min-price" className="sr-only">
+            Minimum price
+          </Label>
+          <Input
+            id="filter-min-price"
+            inputMode="decimal"
+            placeholder="Min"
+            value={min}
+            onChange={(e) => setMin(e.target.value.replace(/[^\d.]/g, ""))}
+            aria-invalid={invalid || undefined}
+          />
+          <span className="text-muted-foreground" aria-hidden>
+            –
+          </span>
+          <Label htmlFor="filter-max-price" className="sr-only">
+            Maximum price
+          </Label>
+          <Input
+            id="filter-max-price"
+            inputMode="decimal"
+            placeholder="Max"
+            value={max}
+            onChange={(e) => setMax(e.target.value.replace(/[^\d.]/g, ""))}
+            aria-invalid={invalid || undefined}
+          />
+        </div>
+        <Button type="submit" variant="secondary" size="sm" className="w-full">
           Apply price
-        </button>
+        </Button>
       </form>
-      {invalid && <p className="text-xs text-destructive">Minimum must not exceed maximum.</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </fieldset>
   )
 }

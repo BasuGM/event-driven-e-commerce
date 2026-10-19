@@ -52,6 +52,7 @@ export async function ProductReviews({
       </ul>
       <PageLinks
         label="Review pages"
+        anchor="reviews"
         page={page}
         totalPages={totalPages}
         hrefFor={(n) => (n === 1 ? `/shop/${slug}` : `/shop/${slug}?reviews_page=${n}`)}

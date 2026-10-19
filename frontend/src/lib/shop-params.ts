@@ -48,9 +48,8 @@ export function parseShopParams(source: ParamSource): ShopFilters {
   if (minPrice && PRICE.test(minPrice)) filters.minPrice = minPrice
   const maxPrice = read(source, "max_price")
   if (maxPrice && PRICE.test(maxPrice)) filters.maxPrice = maxPrice
-  if (filters.minPrice && filters.maxPrice && Number(filters.minPrice) > Number(filters.maxPrice)) {
-    delete filters.maxPrice
-  }
+  // An inverted range is kept (not silently fixed) so the page and the price form can both show
+  // the same error the form gives when you type it; see priceRangeError.
   const minRating = Number(read(source, "min_rating"))
   if (Number.isInteger(minRating) && minRating >= 1 && minRating <= 5) filters.minRating = minRating
   if (read(source, "in_stock") === "true") filters.inStock = true
@@ -93,6 +92,13 @@ export function updateFilters(current: ShopFilters, patch: Partial<ShopFilters>)
     if (next[key] === undefined || next[key] === "" || next[key] === false) delete next[key]
   }
   return next
+}
+
+/** The price form's rule, shared with URL handling: min must not exceed max. */
+export function priceRangeError(range: Pick<ShopFilters, "minPrice" | "maxPrice">): string | null {
+  const { minPrice, maxPrice } = range
+  if (minPrice && maxPrice && Number(minPrice) > Number(maxPrice)) return "Minimum must not exceed maximum."
+  return null
 }
 
 export function hasActiveFilters(filters: ShopFilters): boolean {

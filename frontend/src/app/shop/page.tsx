@@ -37,7 +37,7 @@ export default async function ShopPage({ searchParams }: PageProps<"/shop">) {
             <FiltersPanel categories={categories} />
           </aside>
 
-          <div className="min-w-0 space-y-4">
+          <div id="results" className="min-w-0 scroll-mt-20 space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <SearchBox />
               <div className="flex items-center justify-between gap-2 sm:justify-end">
@@ -67,6 +67,7 @@ export default async function ShopPage({ searchParams }: PageProps<"/shop">) {
                     </p>
                     <ProductGrid products={result.page.results} />
                     <PageLinks
+                      anchor="results"
                       page={page}
                       totalPages={Math.ceil(result.page.count / PAGE_SIZE)}
                       hrefFor={(n) => shopHref(updateFilters(filters, { page: n }))}

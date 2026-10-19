@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { parseShopParams, shopHref, toApiQuery, toSearchParams, updateFilters } from "./shop-params"
+import { parseShopParams, priceRangeError, shopHref, toApiQuery, toSearchParams, updateFilters } from "./shop-params"
 
 describe("shop params", () => {
   it("round-trips every filter through the URL", () => {
@@ -30,8 +30,12 @@ describe("shop params", () => {
     ).toEqual({})
   })
 
-  it("drops a max price below the min price", () => {
-    expect(parseShopParams(new URLSearchParams("min_price=50&max_price=10"))).toEqual({ minPrice: "50" })
+  it("keeps an inverted price range and flags it like the price form does", () => {
+    const filters = parseShopParams(new URLSearchParams("min_price=50&max_price=10"))
+    expect(filters).toEqual({ minPrice: "50", maxPrice: "10" })
+    expect(priceRangeError(filters)).toBe("Minimum must not exceed maximum.")
+    expect(priceRangeError({ minPrice: "10", maxPrice: "50" })).toBeNull()
+    expect(priceRangeError({ minPrice: "50" })).toBeNull()
   })
 
   it("accepts Next's searchParams object shape", () => {

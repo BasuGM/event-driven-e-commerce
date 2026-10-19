@@ -1,7 +1,7 @@
 import { cacheLife, cacheTag } from "next/cache"
 
 import type { ShopFilters } from "@/lib/shop-params"
-import { toApiQuery } from "@/lib/shop-params"
+import { priceRangeError, toApiQuery } from "@/lib/shop-params"
 
 import { api, withTimeout, type Category, type ProductDetail, type ProductPage, type ReviewPage } from "./client"
 
@@ -18,6 +18,9 @@ export type ProductsResult =
 
 /** Listing is never cached: filter combinations are unbounded and stock must be fresh. */
 export async function getProducts(filters: ShopFilters): Promise<ProductsResult> {
+  // Same rule (and message) as the price form, for an inverted range typed into the URL
+  const priceError = priceRangeError(filters)
+  if (priceError) return { status: "invalid", errors: { max_price: [priceError] } }
   const { data, error, response } = await withTimeout("products", (signal) =>
     api.GET("/api/products/", { params: { query: toApiQuery(filters) }, signal }),
   )

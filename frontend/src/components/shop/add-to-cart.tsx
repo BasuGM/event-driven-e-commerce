@@ -61,7 +61,7 @@ export function AddToCart({ offerId, label, returnTo }: { offerId: number; label
         </Select>
         <Button size="sm" onClick={add} disabled={pending} aria-label={`Add to cart: ${label}`}>
           {pending ? <Loader2 className="animate-spin" /> : <ShoppingBag />}
-          <span className="hidden sm:inline">Add to cart</span>
+          Add to cart
         </Button>
       </div>
       {status && (

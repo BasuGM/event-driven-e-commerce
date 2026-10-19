@@ -16,24 +16,31 @@ export function pageWindow(current: number, total: number): (number | "gap")[] {
   return out
 }
 
-/** Link-based pagination (real hrefs: works without JS, back button, shareable). */
+/**
+ * Link-based pagination (real hrefs: works without JS, back button, shareable).
+ * `anchor` is the id of the element to land on after a page change (e.g. the top of the
+ * results); every link, numbered or Previous/Next, scrolls there instead of the page top.
+ */
 export function PageLinks({
   page,
   totalPages,
   hrefFor,
   label = "Pagination",
+  anchor,
 }: {
   page: number
   totalPages: number
   hrefFor: (page: number) => string
   label?: string
+  anchor?: string
 }) {
   if (totalPages <= 1) return null
+  const linkFor = (n: number) => (anchor ? `${hrefFor(n)}#${anchor}` : hrefFor(n))
   return (
     <Pagination aria-label={label}>
       <PaginationContent>
         <PaginationItem>
-          <PageButton href={page > 1 ? hrefFor(page - 1) : undefined} aria-label="Previous page">
+          <PageButton href={page > 1 ? linkFor(page - 1) : undefined} aria-label="Previous page">
             <ChevronLeft /> <span className="hidden sm:inline">Previous</span>
           </PageButton>
         </PaginationItem>
@@ -45,7 +52,7 @@ export function PageLinks({
           ) : (
             <PaginationItem key={item} className={item === page ? "" : "hidden sm:block"}>
               <Button asChild variant={item === page ? "outline" : "ghost"} size="icon">
-                <Link href={hrefFor(item)} scroll={false} aria-current={item === page ? "page" : undefined}>
+                <Link href={linkFor(item)} aria-current={item === page ? "page" : undefined}>
                   {item}
                 </Link>
               </Button>
@@ -53,7 +60,7 @@ export function PageLinks({
           ),
         )}
         <PaginationItem>
-          <PageButton href={page < totalPages ? hrefFor(page + 1) : undefined} aria-label="Next page">
+          <PageButton href={page < totalPages ? linkFor(page + 1) : undefined} aria-label="Next page">
             <span className="hidden sm:inline">Next</span> <ChevronRight />
           </PageButton>
         </PaginationItem>

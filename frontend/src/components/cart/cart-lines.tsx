@@ -14,7 +14,18 @@ import { formatBRL } from "@/lib/format"
 
 import { LineWarning } from "./line-warning"
 
-const QUANTITIES = Array.from({ length: 10 }, (_, i) => String(i + 1))
+const MAX_LINE_QUANTITY = 10 // = apps.cart.models.MAX_LINE_QUANTITY
+
+/**
+ * 1..min(10, available). The current quantity is always included (even when stock has dropped
+ * below it) so the picker can show it; choosing a lower value is how the line gets fixed.
+ */
+export function quantityOptions(quantity: number, available: number): string[] {
+  const max = Math.min(MAX_LINE_QUANTITY, available)
+  const options = Array.from({ length: Math.max(max, 0) }, (_, i) => i + 1)
+  if (!options.includes(quantity)) options.push(quantity)
+  return options.map(String)
+}
 
 export function CartLines({ lines }: { lines: CartLine[] }) {
   return (
@@ -83,7 +94,7 @@ function CartLineRow({ line }: { line: CartLine }) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {QUANTITIES.map((q) => (
+              {quantityOptions(line.quantity, line.available).map((q) => (
                 <SelectItem key={q} value={q}>
                   {q}
                 </SelectItem>

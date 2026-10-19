@@ -57,6 +57,52 @@ describe("FiltersPanel ↔ URL", () => {
     expect(push).toHaveBeenCalledWith("/shop?min_price=10&max_price=50.5", { scroll: false })
   })
 
+  it("applies the price only on submit, not when moving between the inputs", () => {
+    renderPanel({})
+    const min = screen.getByLabelText("Minimum price")
+    const max = screen.getByLabelText("Maximum price")
+
+    fireEvent.change(min, { target: { value: "10" } })
+    fireEvent.blur(min)
+    fireEvent.change(max, { target: { value: "50" } })
+    fireEvent.blur(max)
+    expect(push).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply price" }))
+    expect(push).toHaveBeenCalledWith("/shop?min_price=10&max_price=50", { scroll: false })
+  })
+
+  it("keeps a typed draft and the focused input when other filters change the URL", () => {
+    const { rerender } = renderPanel({})
+    const max = screen.getByLabelText("Maximum price")
+    max.focus()
+    fireEvent.change(max, { target: { value: "75" } })
+
+    rerender(
+      <ShopNavigationProvider filters={{ inStock: true }}>
+        <FiltersPanel categories={categories} />
+      </ShopNavigationProvider>,
+    )
+
+    expect(screen.getByLabelText("Maximum price")).toBe(max)
+    expect(max).toHaveFocus()
+    expect(max).toHaveValue("75")
+  })
+
+  it("re-syncs the inputs when the URL's price values change", () => {
+    const { rerender } = renderPanel({ minPrice: "10", maxPrice: "50" })
+    fireEvent.change(screen.getByLabelText("Minimum price"), { target: { value: "20" } })
+
+    rerender(
+      <ShopNavigationProvider filters={{}}>
+        <FiltersPanel categories={categories} />
+      </ShopNavigationProvider>,
+    )
+
+    expect(screen.getByLabelText("Minimum price")).toHaveValue("")
+    expect(screen.getByLabelText("Maximum price")).toHaveValue("")
+  })
+
   it("does not push an inverted price range", () => {
     renderPanel({})
 
@@ -65,6 +111,14 @@ describe("FiltersPanel ↔ URL", () => {
     fireEvent.submit(screen.getByLabelText("Maximum price").closest("form")!)
 
     expect(push).not.toHaveBeenCalled()
+    expect(screen.getByText("Minimum must not exceed maximum.")).toBeInTheDocument()
+  })
+
+  it("shows an inverted range from the URL with the form's error", () => {
+    renderPanel({ minPrice: "50", maxPrice: "10" })
+
+    expect(screen.getByLabelText("Minimum price")).toHaveValue("50")
+    expect(screen.getByLabelText("Maximum price")).toHaveValue("10")
     expect(screen.getByText("Minimum must not exceed maximum.")).toBeInTheDocument()
   })
 
