@@ -61,7 +61,12 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
       </Breadcrumb>
 
       <div className="grid gap-8 md:grid-cols-2 lg:gap-12">
-        <CategoryPlaceholder category={product.category} className="rounded-xl" iconClassName="size-24" />
+        {/* Below md a square would fill the first screen; keep the name and price in view */}
+        <CategoryPlaceholder
+          category={product.category}
+          className="rounded-xl max-md:aspect-video"
+          iconClassName="size-16 md:size-24"
+        />
 
         <div className="space-y-6">
           <div className="space-y-3">
