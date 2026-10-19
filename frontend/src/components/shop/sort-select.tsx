@@ -12,6 +12,7 @@ export function SortSelect() {
   const { filters, apply } = useShopNavigation()
   // Searching without an explicit sort ranks by relevance (the API's default for q).
   const value = filters.ordering ?? (filters.q ? RELEVANCE : "popular")
+  const label = value === RELEVANCE ? "Best match" : ORDERING_LABELS[value]
 
   return (
     <div className="flex items-center gap-2">
@@ -23,7 +24,9 @@ export function SortSelect() {
         onValueChange={(next) => apply({ ordering: next === RELEVANCE ? undefined : (next as ShopOrdering) })}
       >
         <SelectTrigger id="shop-sort" className="w-44">
-          <SelectValue />
+          {/* Explicit label: Radix only knows item text once the (client) content mounts, so the
+              server-rendered trigger would otherwise be blank until hydration */}
+          <SelectValue>{label}</SelectValue>
         </SelectTrigger>
         <SelectContent align="end">
           {filters.q && <SelectItem value={RELEVANCE}>Best match</SelectItem>}
