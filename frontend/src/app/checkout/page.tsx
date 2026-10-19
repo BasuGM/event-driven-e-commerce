@@ -29,7 +29,7 @@ export default async function CheckoutPage() {
             <CardTitle>Shipping address</CardTitle>
           </CardHeader>
           <CardContent>
-            <CheckoutForm lines={cart.lines} defaultName={me.user?.name ?? ""} lastShipping={lastShipping} />
+            <CheckoutForm lines={cart.lines} totals={cart} defaultName={me.user?.name ?? ""} lastShipping={lastShipping} />
           </CardContent>
         </Card>
         <Card className="h-fit lg:sticky lg:top-20">

@@ -13,8 +13,9 @@ import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { browserApi, ensureCsrf, NETWORK_PROBLEM, toProblem, type ApiProblem } from "@/lib/api/browser"
-import type { CartLine, Shipping } from "@/lib/api/client"
+import type { Cart, CartLine, Shipping } from "@/lib/api/client"
 import { currentAttempt, fingerprint, settleAttempt } from "@/lib/checkout-attempt"
+import { formatBRL } from "@/lib/format"
 
 export const BR_STATES = [
   "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR",
@@ -60,10 +61,12 @@ export function shippingDefaults(defaultName: string, last: Shipping | null): Sh
 
 export function CheckoutForm({
   lines,
+  totals,
   defaultName,
   lastShipping = null,
 }: {
   lines: CartLine[]
+  totals: Pick<Cart, "total" | "item_count">
   defaultName: string
   lastShipping?: Shipping | null
 }) {
@@ -185,6 +188,13 @@ export function CheckoutForm({
 
       {problem && <CheckoutProblem problem={problem} />}
 
+      {/* Phones: the order summary card sits below the form, so show the total before you commit */}
+      <p className="flex items-baseline justify-between gap-4 text-sm md:hidden" data-testid="checkout-mobile-total">
+        <span className="text-muted-foreground">
+          Total ({totals.item_count} {totals.item_count === 1 ? "item" : "items"})
+        </span>
+        <span className="text-base font-semibold tabular-nums">{formatBRL(totals.total)}</span>
+      </p>
       <Button type="submit" size="lg" className="w-full" disabled={form.formState.isSubmitting}>
         {form.formState.isSubmitting ? <Loader2 className="animate-spin" /> : retryable ? <RotateCw /> : null}
         {retryable ? "Retry placing order" : "Place order"}
