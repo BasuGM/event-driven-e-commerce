@@ -2,6 +2,7 @@ import pytest
 
 from apps.catalog.enrichment import (
     GROUPS,
+    _article,
     category_group,
     category_label,
     category_slug,
@@ -56,6 +57,28 @@ def test_category_group(name, group):
 def test_category_label_and_slug():
     assert category_label("bed_bath_table") == "Bed Bath Table"
     assert category_slug("bed_bath_table") == "bed-bath-table"
+
+
+@pytest.mark.parametrize(
+    "raw, label, slug",
+    [
+        ("fashio_female_clothing", "Fashion Female Clothing", "fashio-female-clothing"),
+        ("costruction_tools_garden", "Construction Tools Garden", "costruction-tools-garden"),
+        ("costruction_tools_tools", "Construction Tools Tools", "costruction-tools-tools"),
+        ("home_confort", "Home Comfort", "home-confort"),
+    ],
+)
+def test_category_label_fixes_dataset_typos_but_keeps_slugs(raw, label, slug):
+    assert category_label(raw) == label
+    assert category_slug(raw) == slug  # URLs unchanged
+
+
+@pytest.mark.parametrize(
+    "adjective, article",
+    [("Elegant", "an"), ("Organic", "an"), ("Ultra", "an"), ("Universal", "a"), ("Premium", "a")],
+)
+def test_article_matches_the_adjective(adjective, article):
+    assert _article(adjective) == article
 
 
 def test_uncategorised_product_still_gets_text():

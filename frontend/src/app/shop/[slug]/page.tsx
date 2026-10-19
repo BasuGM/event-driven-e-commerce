@@ -128,6 +128,13 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
   )
 }
 
+/** "Lowest of 3 sellers", or "1 of 2 sellers in stock" when some sellers are out of stock. */
+function sellerSummary(inStock: number, total: number): string {
+  if (total === 1) return "From 1 seller"
+  if (inStock === total) return `Lowest of ${total} sellers`
+  return `${inStock} of ${total} sellers in stock`
+}
+
 function PriceSummary({ product }: { product: ProductDetail }) {
   const sellers = product.offers.filter((offer) => offer.in_stock).length
   if (!product.min_price) {
@@ -142,7 +149,7 @@ function PriceSummary({ product }: { product: ProductDetail }) {
     <div className="space-y-1">
       <p className="text-3xl font-semibold tabular-nums">{formatBRL(product.min_price)}</p>
       <p className="text-sm text-muted-foreground">
-        {sellers > 1 ? `Lowest of ${sellers} sellers in stock` : "From 1 seller"} ·{" "}
+        {sellerSummary(sellers, product.offers.length)} ·{" "}
         {formatInteger(product.sales_count)} sold
       </p>
     </div>

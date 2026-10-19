@@ -182,8 +182,21 @@ def category_group(name_english: str | None) -> str:
     return "general"
 
 
+# Typos in Olist's category names. Fixed only in the label: slugs (= URLs) keep the raw name.
+_LABEL_WORD_FIXES = {"fashio": "fashion", "costruction": "construction", "confort": "comfort"}
+
+
 def category_label(name_english: str) -> str:
-    return name_english.replace("_", " ").strip().title()
+    words = name_english.replace("_", " ").split()
+    return " ".join(_LABEL_WORD_FIXES.get(w.lower(), w) for w in words).title()
+
+
+def _article(word: str) -> str:
+    """'a' or 'an' by sound for our adjectives: "an elegant", "an ultra", but "a universal"."""
+    lower = word.lower()
+    if lower.startswith(("uni", "use", "eu", "one")):
+        return "a"
+    return "an" if lower[:1] in "aeiou" else "a"
 
 
 def category_slug(name_english: str) -> str:
@@ -235,7 +248,7 @@ def generate_product_text(
     points = list(vocab.selling_points)
     rng.shuffle(points)
     sentences = [
-        f"The {name} is a {adjective.lower()} pick from our {category} range.",
+        f"The {name} is {_article(adjective)} {adjective.lower()} pick from our {category} range.",
         f"Its {material} design {points[0]}.",
     ]
     if dimension_text := _dimensions_sentence(dims or {}):
