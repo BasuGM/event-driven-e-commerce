@@ -8,9 +8,30 @@ import { useState, useTransition } from "react"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { browserApi, ensureCsrf, NETWORK_PROBLEM, toProblem } from "@/lib/api/browser"
+import { newNonce, withIntent } from "@/lib/cart-intent"
 import { loginHref } from "@/lib/urls"
 
 const QUANTITIES = Array.from({ length: 10 }, (_, i) => String(i + 1))
+
+export type CartStatus = { kind: "added" | "error"; message: string }
+
+/** "Added to cart · View cart" (or the error), shared with the post-login replay. */
+export function CartStatusMessage({ status }: { status: CartStatus }) {
+  return (
+    <p
+      role="status"
+      className={status.kind === "error" ? "text-xs text-destructive" : "flex items-center gap-1 text-xs text-success"}
+    >
+      {status.kind === "added" && <Check className="size-3" aria-hidden />}
+      {status.message}
+      {status.kind === "added" && (
+        <Link href="/cart" className="ml-1 underline underline-offset-2">
+          View cart
+        </Link>
+      )}
+    </p>
+  )
+}
 
 /** Quantity + "Add to cart" for one offer. Logged-out visitors are sent to log in first. */
 // returnTo comes from the page (not usePathname): reading the URL in a client component would
@@ -18,7 +39,7 @@ const QUANTITIES = Array.from({ length: 10 }, (_, i) => String(i + 1))
 export function AddToCart({ offerId, label, returnTo }: { offerId: number; label: string; returnTo: string }) {
   const router = useRouter()
   const [quantity, setQuantity] = useState("1")
-  const [status, setStatus] = useState<{ kind: "added" | "error"; message: string } | null>(null)
+  const [status, setStatus] = useState<CartStatus | null>(null)
   const [pending, startTransition] = useTransition()
 
   const add = () =>
@@ -30,7 +51,9 @@ export function AddToCart({ offerId, label, returnTo }: { offerId: number; label
           body: { offer_id: offerId, quantity: Number(quantity) },
         })
         if (response.status === 401) {
-          router.push(loginHref(returnTo))
+          // Log in (or register), come back and add it then: see PendingCartIntent
+          const intent = { offerId, quantity: Number(quantity), nonce: newNonce() }
+          router.push(loginHref(withIntent(returnTo, intent)))
           return
         }
         if (!response.ok) {
@@ -64,20 +87,7 @@ export function AddToCart({ offerId, label, returnTo }: { offerId: number; label
           Add to cart
         </Button>
       </div>
-      {status && (
-        <p
-          role="status"
-          className={status.kind === "error" ? "text-xs text-destructive" : "flex items-center gap-1 text-xs text-success"}
-        >
-          {status.kind === "added" && <Check className="size-3" aria-hidden />}
-          {status.message}
-          {status.kind === "added" && (
-            <Link href="/cart" className="ml-1 underline underline-offset-2">
-              View cart
-            </Link>
-          )}
-        </p>
-      )}
+      {status && <CartStatusMessage status={status} />}
     </div>
   )
 }

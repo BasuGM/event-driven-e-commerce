@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { CategoryPlaceholder } from "@/components/shop/category-placeholder"
 import { OffersTable } from "@/components/shop/offers-table"
+import { PendingCartIntent } from "@/components/shop/pending-cart-intent"
 import { ProductReviews, ProductReviewsSkeleton } from "@/components/shop/product-reviews"
 import { StarRating } from "@/components/shop/star-rating"
 import { getProduct } from "@/lib/api/catalog"
@@ -90,7 +91,10 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
             Sellers <span className="font-normal text-muted-foreground">({product.offers.length})</span>
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          <Suspense fallback={null}>
+            <PendingCartIntent productPath={`/shop/${product.slug}`} searchParams={searchParams} />
+          </Suspense>
           {product.offers.length > 0 ? (
             <OffersTable offers={product.offers} productSlug={product.slug} />
           ) : (
