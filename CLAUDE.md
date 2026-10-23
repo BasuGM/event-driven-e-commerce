@@ -87,8 +87,9 @@ with other local services; containers always talk to each other on the default p
 | `make events-logs` | Follow the relay and consumers logs                      |
 
 `make up` also starts the Celery `worker` and `beat` services (see their logs with
-`docker compose logs -f worker beat`) and the event `relay` and `consumers` services. The relay
-logs database errors until `make migrate` has created its table, then recovers on its own.
+`docker compose logs -f worker beat`) and the event `relay` and `consumers` services. Until
+`make migrate` has created the events tables they log one "waiting for the events tables" line
+and wait (also after `make reset` drops the schema); consumers never read a stream before that.
 
 Under the hood: `python manage.py import_olist --size small|large [--data-dir DIR]` and
 `python manage.py seed_dev_users` (refuses to run unless settings set `ALLOW_DEV_SEED`).

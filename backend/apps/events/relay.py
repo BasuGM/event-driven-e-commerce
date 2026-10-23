@@ -26,6 +26,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from .models import OutboxEvent
+from .readiness import missing_event_tables, wait_for_event_tables
 from .streams import entry_fields, redis_client, stream_name
 
 logger = logging.getLogger(__name__)
@@ -76,12 +77,18 @@ def run_relay(stop: threading.Event, *, client: redis.Redis | None = None) -> No
     IDLE_SLEEP; Redis or database errors back off exponentially (with jitter, capped)."""
     client = client or redis_client()
     failures = 0
+    if not wait_for_event_tables(stop, who="Relay"):
+        return
     logger.info("Outbox relay started")
     while not stop.is_set():
         close_old_connections()
         try:
             result = publish_batch(client)
         except DatabaseError:
+            if missing_event_tables():  # schema dropped under us (make reset): wait, quietly
+                if not wait_for_event_tables(stop, who="Relay"):
+                    break
+                continue
             logger.exception("Relay: database error")
             result = BatchResult(selected=0, published=0, error=DatabaseError("database error"))
         if result.published:

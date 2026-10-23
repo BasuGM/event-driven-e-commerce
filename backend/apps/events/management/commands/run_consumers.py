@@ -4,6 +4,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
 from apps.events.consumers import CONSUMERS
+from apps.events.readiness import wait_for_event_tables
 
 from ._signals import stop_on_signals
 
@@ -17,6 +18,11 @@ class Command(BaseCommand):
     def handle(self, *args, only=None, **options):
         names = only or sorted(CONSUMERS)
         stop = stop_on_signals()
+        # Not before migrations: a consumer without its tables would fail and dead-letter
+        # every event it reads.
+        if not wait_for_event_tables(stop, who="Consumers"):
+            return
+        connection.close()  # the threads open their own connections
         threads = [
             threading.Thread(target=self._run, args=(CONSUMERS[name], stop), name=name, daemon=True)
             for name in names
