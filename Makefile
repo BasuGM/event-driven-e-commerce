@@ -22,6 +22,10 @@ down: require-env
 reset: require-env
 	$(DB) psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -v ON_ERROR_STOP=1 \
 		-c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+	# Event streams (events:*, their consumer groups, the DLQ) describe the old data: drop them
+	# too, or consumers replay old events against the fresh DB. Only those keys (Celery shares
+	# the Redis DB). After DROP SCHEMA, so the relay is already waiting and can't refill them.
+	$(BACKEND) python manage.py clear_event_streams
 	$(MAKE) migrate
 	$(MAKE) seed
 

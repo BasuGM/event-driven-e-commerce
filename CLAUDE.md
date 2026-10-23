@@ -71,7 +71,7 @@ with other local services; containers always talk to each other on the default p
 | `cp .env.example .env` | First run only: create local config                  |
 | `make up`         | Start all services                                        |
 | `make down`       | Stop all services                                         |
-| `make reset`      | Drop DB, migrate, seed (small) — clean slate in one step  |
+| `make reset`      | Drop DB, delete the `events:*` streams, migrate, seed (small) — clean slate in one step |
 | `make seed`       | Seed small dataset (fast, for dev and tests)              |
 | `make seed-large` | Import the full Olist dataset                             |
 | `make snapshot`   | Dump the current DB to `data/snapshots/`                  |
@@ -261,6 +261,10 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
 - **Dashboard stats stay on-request** (four `COUNT(*)`s): products/sellers come from the
   importer (no events), so event-maintained counters would need a backfill and could drift.
 - Beat purges published outbox rows and ProcessedEvent rows after `EVENTS_RETENTION_DAYS`.
+- `make reset` also deletes the event streams (`manage.py clear_event_streams`: only
+  `<EVENTS_STREAM_PREFIX>:*` stream keys, with their groups and the DLQ; Celery's keys in the
+  same Redis DB are untouched). Otherwise consumers would replay old events against fresh data.
+  Dev/test only (`ALLOW_DEV_SEED`).
 - `/api/health` reports the outbox backlog (unpublished count, oldest age); informational only.
 - Tests use the real compose Redis (DB 15, `test-events:` prefix, keys cleared per test).
 
