@@ -1,5 +1,7 @@
 import { cacheLife, cacheTag } from "next/cache"
 
+import { ALL_PRODUCTS, productTag } from "@/lib/cache-tags"
+
 import type { ShopFilters } from "@/lib/shop-params"
 import { priceRangeError, toApiQuery } from "@/lib/shop-params"
 
@@ -34,14 +36,14 @@ export async function getProducts(filters: ShopFilters): Promise<ProductsResult>
 }
 
 /**
- * Product detail is cached for a few minutes: it only changes on re-import today, and later on
- * catalog events, which can call revalidateTag(`product:${slug}`) to refresh it immediately.
- * Returns null for an unknown slug so the page can call notFound().
+ * Product detail is cached for a few minutes, and revalidated immediately when its stock or
+ * sales change: the backend's cache_invalidation consumer calls POST /internal/revalidate with
+ * productTag(slug). Returns null for an unknown slug so the page can call notFound().
  */
 export async function getProduct(slug: string): Promise<ProductDetail | null> {
   "use cache"
   cacheLife({ stale: 60, revalidate: 300, expire: 3600 })
-  cacheTag(`product:${slug}`, "products")
+  cacheTag(productTag(slug), ALL_PRODUCTS)
 
   const { data, response } = await withTimeout(`product ${slug}`, (signal) =>
     api.GET("/api/products/{slug}/", { params: { path: { slug } }, signal }),

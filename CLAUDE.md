@@ -8,7 +8,8 @@ real Olist Brazilian E-Commerce dataset so there is realistic data from day one.
 - **Backend:** Django (latest stable) + Django REST Framework, drf-spectacular for OpenAPI
 - **Database:** PostgreSQL
 - **Queue / events:** Redis — Celery broker (`worker` + `beat` services: reservation expiry,
-  key cleanup); Redis Streams for events in a later step
+  key/event cleanup) and Redis Streams for domain events (`relay` + `consumers` services; see
+  "Events")
 - **Frontend:** Next.js (latest stable, App Router) + TypeScript + Tailwind + shadcn/ui (lucide-react
   icons, next-themes for dark mode), forms with shadcn `Field` + react-hook-form + zod. TanStack
   Table (data tables) and Recharts via shadcn's chart component (charts) are added with the first
@@ -32,16 +33,22 @@ backend/
   apps/customers/   Customer
   apps/orders/      Order, OrderItem, Payment, Review, Reservation, OrderStatusHistory;
                     state.py (state machine), services.py (checkout/pay/cancel/expiry — the
-                    only code that changes stock), selectors.py, tasks.py (Celery)
+                    only code that changes stock), events.py (order event names + payloads),
+                    selectors.py, tasks.py (Celery)
+  apps/events/      OutboxEvent, ProcessedEvent; outbox.py (record_event), relay.py,
+                    consumer.py (framework), consumers/ (product_stats, cache_invalidation),
+                    revalidate.py (calls Next), run_relay / run_consumers commands
   tests/            pytest suite; tests/fixtures/olist/ = tiny CSVs incl. messy rows
 frontend/src/
-  app/              App Router pages (+ loading.tsx / error.tsx per data view)
+  app/              App Router pages (+ loading.tsx / error.tsx per data view);
+                    app/internal/revalidate/route.ts = cache invalidation for the consumers
   components/ui/    shadcn primitives (CLI-managed)
   components/<feature>/  feature components (layout/, dashboard/, shop/, ...)
   lib/api/          schema.yml + generated schema.d.ts (make types), typed client.ts,
                     catalog.ts (catalog fetchers incl. the cached getProduct),
                     server.ts (as-the-visitor fetchers, forwards cookies), browser.ts (same-origin
                     client for Client Components, sends X-CSRFToken)
+  lib/cache-tags.ts  cache tag names (productTag, ALL_PRODUCTS), shared with the backend
   lib/checkout-attempt.ts  idempotency keys for checkout (reuse on retry)
   lib/shop-params.ts  URL search params <-> shop filters (the only translation layer)
 frontend/e2e/       Playwright smoke tests (run.sh is the e2e container entry point)
@@ -76,9 +83,12 @@ with other local services; containers always talk to each other on the default p
 | `make e2e`        | Playwright smoke test against the running, seeded stack   |
 | `make types`      | Regenerate OpenAPI schema and the TS client               |
 | `make migrate`    | Apply migrations                                          |
+| `make backfill-sales` | Recount `sales_count` without canceled/unavailable orders (one-off, re-runnable) |
+| `make events-logs` | Follow the relay and consumers logs                      |
 
 `make up` also starts the Celery `worker` and `beat` services (see their logs with
-`docker compose logs -f worker beat`).
+`docker compose logs -f worker beat`) and the event `relay` and `consumers` services. The relay
+logs database errors until `make migrate` has created its table, then recovers on its own.
 
 Under the hood: `python manage.py import_olist --size small|large [--data-dir DIR]` and
 `python manage.py seed_dev_users` (refuses to run unless settings set `ALLOW_DEV_SEED`).
@@ -114,6 +124,11 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   `search_vector`) are denormalised and recomputed by `apps/catalog/stats.py` at the end of
   every import with set-based SQL. Anything that changes offers, reviews, order items or a
   product's name/category must refresh them.
+- `sales_count` / `first_sold_at` only count units on orders that aren't `canceled` or
+  `unavailable` (unpaid orders count until they're canceled or expire). After an import the SQL
+  applies it directly; in the order flow the `product_stats` consumer keeps it current.
+- The importer emits no events (it isn't the order flow); a bulk change to imported data needs
+  `make backfill-sales` or a full stats refresh, not events.
 - Migrations that add required columns to populated tables: add nullable → backfill with a
   frozen `RunPython` (no app imports) → enforce in a follow-up migration.
 - Bad rows are logged and skipped, never fatal; the import summary reports skipped counts by
@@ -152,8 +167,10 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   `withTimeout()` (5 s, plain `BackendTimeoutError`). Don't add openapi-fetch middleware: it
   calls `Math.random()`, which `cacheComponents` rejects during prerender.
 - `cacheComponents` is on. Cache with `"use cache"` + `cacheLife` + `cacheTag` (product detail:
-  revalidate 5 min, tags `product:<slug>` and `products` — ready for event-driven
-  `revalidateTag`). Listings stay dynamic. Anything reading `searchParams`/`usePathname()` must
+  revalidate 5 min, tags `productTag(slug)` = `product:<slug>` and `ALL_PRODUCTS` = `products`
+  from `lib/cache-tags.ts`). The `cache_invalidation` consumer revalidates `product:<slug>`
+  through `POST /internal/revalidate` (`revalidateTag(tag, { expire: 0 })`, shared secret
+  `REVALIDATE_SECRET`). Listings stay dynamic (no tags). Anything reading `searchParams`/`usePathname()` must
   sit under a `<Suspense>` boundary (or a `loading.tsx`).
 - On a streamed route, `notFound()` renders the not-found UI with `noindex` but the HTTP status
   is already 200 (documented Next behaviour); the API returns real 404s.
@@ -205,9 +222,46 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   `SKIP LOCKED`, idempotent) and a daily idempotency-key purge.
 - `ALLOW_FAKE_PAYMENTS` (dev/test only) enables `POST /api/orders/{id}/pay/`.
 - Order items are stored one row per unit (like Olist); APIs group them into lines.
-- After any stock/sales change, `refresh_product_stats_on_commit(product_ids)` refreshes
-  `min_price`, sales and ratings (per-product SQL, products locked in id order, retried on
-  deadlock, `robust=True` so it can't fail a committed request).
+- After any stock change, `refresh_product_stats_on_commit(product_ids)` refreshes `min_price`
+  and ratings synchronously (per-product SQL, products locked in id order, retried on deadlock,
+  `robust=True` so it can't fail a committed request), so the listing's price and in-stock
+  filter are right at once. `sales_count` is **eventually consistent**: the `product_stats`
+  consumer owns it (seconds of lag).
+- Every order state change records a domain event with `events.record_order_event()` in the
+  same transaction (see "Events").
+
+## Events (outbox → relay → Redis Streams → consumers)
+
+- **Write:** services call `record_event()` (`apps/events/outbox.py`) inside the transaction
+  that makes the change — never in views or signals. Rollback = no event. Order events:
+  `OrderPlaced`, `OrderPaid`, `PaymentFailed`, `OrderCanceled` (customer), `ReservationExpired`
+  (`source`: `sweeper` or `payment_attempt`); payload = order id, user id, status, reason,
+  lines (offer/product id + slug, seller, quantity, unit price/freight), totals. Money as
+  decimal strings. Bump `schema_version` for breaking payload changes.
+- **Relay** (`run_relay`, compose `relay`): batches of unpublished rows with
+  `FOR UPDATE SKIP LOCKED`, XADD to `events:<aggregate_type>` (entry carries the event id), then
+  stamps `published_at`. Stops at the first Redis error (never skips), records
+  `attempts`/`last_error`, backs off. Safe to scale. The Redis client has connect/socket
+  timeouts so a hung Redis can't hold the row locks.
+- **Delivery is at-least-once** (a crash between XADD and the commit re-sends). Consumers make
+  it effectively-once: `ProcessedEvent(consumer, event_id)` is inserted in the same transaction
+  as the side effects, and XACK only happens after commit. Event types a consumer doesn't
+  handle are just acked.
+- **No ordering guarantee** across relays: handlers must be **state-based** (recompute from the
+  DB), never apply deltas.
+- **Recovery:** pending entries idle for `EVENTS_CLAIM_IDLE_MS` are reclaimed (XAUTOCLAIM);
+  after `EVENTS_MAX_DELIVERIES` (5) an entry goes to `events:dlq` with the error and is acked.
+- **Consumers** (`run_consumers`, compose `consumers`, one thread each, SIGTERM = graceful):
+  - `product_stats` (order events): recomputes `sales_count` + `min_price`, then records
+    `ProductsChanged` (stream `events:product`) in the same transaction.
+  - `cache_invalidation` (`ProductsChanged`): POSTs the products' cache tags to the frontend's
+    `/internal/revalidate` (header `x-revalidate-secret`). Chained so revalidation always
+    follows the recompute.
+- **Dashboard stats stay on-request** (four `COUNT(*)`s): products/sellers come from the
+  importer (no events), so event-maintained counters would need a backfill and could drift.
+- Beat purges published outbox rows and ProcessedEvent rows after `EVENTS_RETENTION_DAYS`.
+- `/api/health` reports the outbox backlog (unpublished count, oldest age); informational only.
+- Tests use the real compose Redis (DB 15, `test-events:` prefix, keys cleared per test).
 
 ## UI rules
 
@@ -250,8 +304,14 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
 - `ALLOW_FAKE_PAYMENTS` off (it is off in `base.py`; only `dev.py`/`test.py` enable it).
 - `DEBUG = False`, a real `DJANGO_SECRET_KEY`, no dev users (`seed_dev_users` refuses without
   `ALLOW_DEV_SEED`).
+- A real `REVALIDATE_SECRET`; keep `/internal/revalidate` off the public edge (it's for the
+  backend containers only).
 
 ## Known issues
+
+- Redis persists streams with AOF `appendfsync everysec`: a hard crash can lose up to ~1 s of
+  events the outbox already marked published. Streams are trimmed (`MAXLEN ~ 100000`); a
+  consumer group lagging further than that would miss events.
 
 - `redis` (redis-py) is pinned to 6.4.0: `kombu[redis]` (Celery's transport) requires `<6.5`.
   It was 8.1.0 in Steps 1–2, used only for the health check.
@@ -271,4 +331,5 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
 ## Out of scope (for now)
 
 - Kafka (Redis Streams covers the concepts), Kubernetes, microservices split, real payments
-  (Stripe test mode only, in a later step).
+  (Stripe test mode only, in a later step), SSE live tracking, an event replay command and an
+  event explorer (later steps).

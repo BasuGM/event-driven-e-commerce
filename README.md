@@ -21,7 +21,8 @@ folder is gitignored. The geolocation CSV is not used yet.
 
 ```sh
 cp .env.example .env   # adjust host ports here if 5432/6379/8000/3000 are taken
-make up                # build and start db, redis, backend, Celery worker + beat, frontend
+make up                # build and start db, redis, backend, Celery worker + beat, event relay +
+                       # consumers, frontend
 make reset             # create the schema, import ~2,000 orders, create dev users
 ```
 
@@ -55,3 +56,15 @@ Checkout**. Placing the order holds the stock for 15 minutes (`RESERVATION_TTL_M
 order page use **Simulate payment success / failure** (dev only, `ALLOW_FAKE_PAYMENTS`). If you
 don't pay, the Celery `beat` + `worker` services cancel the order and return the stock within a
 minute of expiry (`docker compose logs -f worker`).
+
+## Events (dev)
+
+Every order change (placed, paid, payment failed, canceled, expired) writes an event to the
+outbox in the same transaction; the `relay` service publishes it to Redis Streams and the
+`consumers` service reacts: it updates the product's sales count and tells Next.js to refresh
+the cached product page. Watch it with `make events-logs`; the dashboard's health badges show
+the outbox backlog.
+
+Upgrading an existing checkout: add the `# --- Events ---` block from `.env.example` to your
+`.env` (`REVALIDATE_SECRET`, `FRONTEND_INTERNAL_URL`), run `make up && make migrate`, then
+`make backfill-sales` once (older data counted canceled orders as sales).

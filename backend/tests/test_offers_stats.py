@@ -70,7 +70,9 @@ def test_min_price_ignores_out_of_stock_offers(imported):
 
 
 def test_sales_and_first_sold_at(imported):
-    assert [product(n).sales_count for n in range(1, 5)] == [4, 3, 2, 1]
+    # p1 has 5 items in the CSVs: one never imports (bad row) and one is on canceled order o3,
+    # which doesn't count as a sale.
+    assert [product(n).sales_count for n in range(1, 5)] == [3, 3, 2, 1]
     assert product(1).first_sold_at == datetime(2017, 10, 2, 13, 56, 33, tzinfo=UTC)
 
 

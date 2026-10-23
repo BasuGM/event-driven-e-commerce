@@ -7,7 +7,7 @@ from apps.catalog.models import Product, Seller
 from apps.customers.models import Customer
 from apps.orders.models import Order
 
-from .health import check_db, check_redis
+from .health import check_db, check_redis, outbox_backlog
 from .serializers import HealthSerializer, StatsSerializer
 
 
@@ -26,7 +26,12 @@ class HealthView(APIView):
     )
     def get(self, request):
         db_ok, redis_ok = check_db(), check_redis()
-        data = {"status": _label(db_ok and redis_ok), "db": _label(db_ok), "redis": _label(redis_ok)}
+        data = {
+            "status": _label(db_ok and redis_ok),
+            "db": _label(db_ok),
+            "redis": _label(redis_ok),
+            "outbox": outbox_backlog() if db_ok else None,
+        }
         code = status.HTTP_200_OK if db_ok and redis_ok else status.HTTP_503_SERVICE_UNAVAILABLE
         return Response(HealthSerializer(data).data, status=code)
 

@@ -874,8 +874,15 @@ components:
           $ref: '#/components/schemas/HealthStatusEnum'
         redis:
           $ref: '#/components/schemas/HealthStatusEnum'
+        outbox:
+          allOf:
+          - $ref: '#/components/schemas/OutboxBacklog'
+          nullable: true
+          description: 'Informational (doesn''t affect status): a growing backlog
+            means the relay is stuck. Null when the database is down.'
       required:
       - db
+      - outbox
       - redis
       - status
     HealthStatusEnum:
@@ -1128,6 +1135,19 @@ components:
         * `delivered` - Delivered
         * `canceled` - Canceled
         * `unavailable` - Unavailable
+    OutboxBacklog:
+      type: object
+      properties:
+        unpublished:
+          type: integer
+          description: Outbox events the relay hasn't published yet
+        oldest_unpublished_age_seconds:
+          type: integer
+          nullable: true
+          description: Age of the oldest unpublished event (null when none)
+      required:
+      - oldest_unpublished_age_seconds
+      - unpublished
     OutcomeEnum:
       enum:
       - success

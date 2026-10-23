@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     "apps.customers",
     "apps.orders",
     "apps.cart",
+    "apps.events",
 ]
 
 MIDDLEWARE = [
@@ -117,6 +118,21 @@ RESERVATION_TTL_MINUTES = int(os.environ.get("RESERVATION_TTL_MINUTES", "15"))
 IDEMPOTENCY_KEY_TTL_HOURS = 24
 ALLOW_FAKE_PAYMENTS = False  # simulated payments: dev/test only
 
+# --- Events (outbox -> relay -> Redis Streams -> consumers) ---------------------------------
+EVENTS_REDIS_URL = os.environ.get("EVENTS_REDIS_URL", REDIS_URL)
+EVENTS_REDIS_CONNECT_TIMEOUT = 2  # seconds; the relay holds row locks while it talks to Redis
+EVENTS_REDIS_SOCKET_TIMEOUT = 5  # seconds; must exceed EVENTS_BLOCK_MS
+EVENTS_STREAM_PREFIX = "events"  # streams: events:order, events:product, events:dlq
+EVENTS_STREAM_MAXLEN = 100_000  # approximate trim per stream
+EVENTS_BLOCK_MS = 2_000  # XREADGROUP block; also bounds how long a consumer takes to stop
+EVENTS_CLAIM_IDLE_MS = 60_000  # a pending entry this idle is reclaimed (and retried)
+EVENTS_MAX_DELIVERIES = 5  # then it goes to the dead-letter stream
+EVENTS_RETENTION_DAYS = 7  # published outbox rows / ProcessedEvent rows
+RELAY_BATCH_SIZE = 100
+# Consumers call the frontend to revalidate Next.js cache tags
+REVALIDATE_SECRET = os.environ.get("REVALIDATE_SECRET", "")
+FRONTEND_INTERNAL_URL = os.environ.get("FRONTEND_INTERNAL_URL", "")
+
 # --- Celery --------------------------------------------------------------------------------
 CELERY_BROKER_URL = REDIS_URL
 CELERY_TASK_IGNORE_RESULT = True
@@ -128,6 +144,10 @@ CELERY_BEAT_SCHEDULE = {
     },
     "purge-expired-idempotency-keys": {
         "task": "apps.core.tasks.purge_expired_idempotency_keys",
+        "schedule": 60.0 * 60 * 24,
+    },
+    "purge-old-events": {
+        "task": "apps.events.tasks.purge_old_events",
         "schedule": 60.0 * 60 * 24,
     },
 }

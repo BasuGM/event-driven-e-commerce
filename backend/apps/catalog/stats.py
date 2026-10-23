@@ -68,14 +68,22 @@ ON CONFLICT (product_id, seller_id) DO UPDATE
 
 # Each statement recomputes one group of columns for *every* product (LEFT JOIN), so a product
 # that loses its last sale/review/offer is reset too.
+#
+# A sale is a unit on an order that wasn't canceled (customer, failed payment, expired hold) or
+# unavailable (Olist: never fulfilled). Unpaid orders count until they're canceled or expire.
+# (Status strings are Order.Status values, written out: stats.py can't import orders.models.)
 SALES_SQL = """
 UPDATE catalog_product p
 SET sales_count = v.sales_count, first_sold_at = v.first_sold_at
 FROM (
-    SELECT p.id, count(oi.id) AS sales_count, min(o.purchased_at) AS first_sold_at
+    SELECT p.id, count(sold.id) AS sales_count, min(sold.purchased_at) AS first_sold_at
     FROM catalog_product p
-    LEFT JOIN orders_orderitem oi ON oi.product_id = p.id
-    LEFT JOIN orders_order o ON o.id = oi.order_id
+    LEFT JOIN (
+        SELECT oi.id, oi.product_id, o.purchased_at
+        FROM orders_orderitem oi
+        JOIN orders_order o ON o.id = oi.order_id
+        WHERE o.status NOT IN ('canceled', 'unavailable')
+    ) sold ON sold.product_id = p.id
     {scope}
     GROUP BY p.id
 ) v
@@ -168,10 +176,27 @@ PRODUCT_STATS_SQL = {
     "min_price": MIN_PRICE_SQL,
     "search": SEARCH_VECTOR_SQL,
 }
-# What an order-flow change (checkout, payment, release) can affect. Names and categories don't
-# change there, so the search vector is left alone.
-ORDER_FLOW_STATS = ("sales", "ratings", "min_price")
+# Refreshed synchronously after an order-flow commit (checkout, payment, release), so the
+# listing's price and in-stock filter are right immediately. Names and categories don't change
+# there, so the search vector is left alone. "sales" is not here: the product_stats event
+# consumer owns it (apps/events/consumers/product_stats.py), so it is eventually consistent.
+ORDER_FLOW_STATS = ("ratings", "min_price")
 _RETRYABLE_SQLSTATES = {"40P01", "40001"}  # deadlock_detected, serialization_failure
+
+
+def lock_products(cursor, ids: list[int]) -> None:
+    """Row-lock products in ascending id order (the project-wide lock-order rule)."""
+    cursor.execute("SELECT id FROM catalog_product WHERE id = ANY(%s) ORDER BY id FOR UPDATE", [ids])
+
+
+def apply_product_stats(cursor, ids: list[int], labels) -> dict[str, int]:
+    """Recompute the given stat groups for these products on the caller's cursor/transaction.
+    Lock them first with ``lock_products``. Returns rows changed per label."""
+    changed = {}
+    for label in labels:
+        cursor.execute(PRODUCT_STATS_SQL[label].format(scope="WHERE p.id = ANY(%s)"), [ids])
+        changed[label] = cursor.rowcount
+    return changed
 
 
 def refresh_product_stats(
@@ -189,17 +214,8 @@ def refresh_product_stats(
     for attempt in range(1, attempts + 1):
         try:
             with transaction.atomic(), connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT id FROM catalog_product WHERE id = ANY(%s) ORDER BY id FOR UPDATE",
-                    [ids],
-                )
-                changed = {}
-                for label in labels:
-                    cursor.execute(
-                        PRODUCT_STATS_SQL[label].format(scope="WHERE p.id = ANY(%s)"), [ids]
-                    )
-                    changed[label] = cursor.rowcount
-                return changed
+                lock_products(cursor, ids)
+                return apply_product_stats(cursor, ids, labels)
         except OperationalError as exc:
             sqlstate = getattr(getattr(exc, "__cause__", None), "sqlstate", None)
             if sqlstate not in _RETRYABLE_SQLSTATES or attempt == attempts:

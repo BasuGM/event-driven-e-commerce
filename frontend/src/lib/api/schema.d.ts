@@ -501,6 +501,8 @@ export interface components {
             status: components["schemas"]["HealthStatusEnum"];
             db: components["schemas"]["HealthStatusEnum"];
             redis: components["schemas"]["HealthStatusEnum"];
+            /** @description Informational (doesn't affect status): a growing backlog means the relay is stuck. Null when the database is down. */
+            outbox: components["schemas"]["OutboxBacklog"] | null;
         };
         /**
          * @description * `ok` - ok
@@ -604,6 +606,12 @@ export interface components {
          * @enum {string}
          */
         OrderStatusEnum: "created" | "approved" | "invoiced" | "processing" | "shipped" | "delivered" | "canceled" | "unavailable";
+        OutboxBacklog: {
+            /** @description Outbox events the relay hasn't published yet */
+            unpublished: number;
+            /** @description Age of the oldest unpublished event (null when none) */
+            oldest_unpublished_age_seconds: number | null;
+        };
         /**
          * @description * `success` - success
          *     * `fail` - fail

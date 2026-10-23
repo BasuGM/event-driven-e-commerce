@@ -102,3 +102,36 @@ def user_client(make_user):
         return client
 
     return make
+
+
+# --- events ---------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def events_redis(settings):
+    """The real Redis (DB 15 in test settings). Every key under the test prefix is deleted
+    before and after, so stream/group state never leaks between tests."""
+    from apps.events.streams import redis_client
+
+    client = redis_client()
+
+    def clear():
+        keys = list(client.scan_iter(f"{settings.EVENTS_STREAM_PREFIX}:*"))
+        if keys:
+            client.delete(*keys)
+
+    clear()
+    yield client
+    clear()
+
+
+@pytest.fixture
+def placed_order(make_user, make_offer, fill_cart, address):
+    """An unpaid order (2 units of one offer, 1 of another) placed through the service layer."""
+    from apps.orders.services import checkout
+
+    user = make_user()
+    a, b = make_offer(price="59.90", freight="12.50"), make_offer(price="10.00", freight="0.00")
+    fill_cart(user, (a, 2), (b, 1))
+    order = checkout(user, address)
+    return order, user, (a, b)

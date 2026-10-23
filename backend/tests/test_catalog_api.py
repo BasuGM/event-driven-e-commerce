@@ -48,7 +48,7 @@ def test_list_is_lean(api_client, catalog):
 
 
 def test_default_ordering_is_popular(api_client, catalog):
-    # sales_count: p1=4, p2=3, p3=2, p4=1
+    # sales_count: p1=3, p2=3 (tie broken by rating_count), p3=2, p4=1
     assert slugs(api_client.get("/api/products/")) == [catalog[n].slug for n in (1, 2, 3, 4)]
 
 

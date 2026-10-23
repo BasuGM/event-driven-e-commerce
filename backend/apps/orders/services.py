@@ -1,6 +1,7 @@
 """Checkout, payment, cancellation and reservation expiry.
 
-Every change to ``Offer.stock`` after the import happens in this module.
+Every change to ``Offer.stock`` after the import happens in this module, and every order state
+change records its domain event (``events.record_order_event``) in the same transaction.
 
 Lock-order rule (prevents deadlocks): Cart (owner only) -> Order -> Offers in ascending id.
 No code path takes these locks in a different order, so no two transactions can each hold a
@@ -26,6 +27,7 @@ from apps.catalog.stats import refresh_product_stats_on_commit
 from apps.core.errors import EmptyCart, InvalidTransition, OutOfStock, ReservationExpired
 from apps.customers.models import Customer
 
+from . import events
 from .models import Order, OrderItem, Payment, Reservation
 from .state import transition
 
@@ -144,6 +146,7 @@ def checkout(user, address: ShippingAddress, *, now: datetime | None = None) -> 
             for line in lines
         )
         order.status_history.create(from_status="", to_status=Order.Status.CREATED, reason="checkout")
+        events.record_order_event(events.ORDER_PLACED, order, reason="checkout", now=now)
         cart.items.all().delete()
         refresh_product_stats_on_commit(offer.product_id for offer in offers.values())
     return order
@@ -216,6 +219,10 @@ def pay(order_id: int, outcome: str, *, now: datetime | None = None) -> Order:
             )
         if _has_expired_reservations(order, now):
             _release_and_cancel(order, "reservation_expired", now)
+            events.record_order_event(
+                events.RESERVATION_EXPIRED, order, reason="reservation_expired", now=now,
+                source="payment_attempt",
+            )
             expired = True
         elif outcome == "success":
             product_ids = _resolve_reservations(order, Reservation.Status.COMMITTED, now)
@@ -226,9 +233,11 @@ def pay(order_id: int, outcome: str, *, now: datetime | None = None) -> Order:
                 payment_type=Payment.PaymentType.CREDIT_CARD, installments=1,
                 value=items_total + freight_total,
             )
+            events.record_order_event(events.ORDER_PAID, order, reason="payment_succeeded", now=now)
             refresh_product_stats_on_commit(product_ids)
         else:
             _release_and_cancel(order, "payment_failed", now)
+            events.record_order_event(events.PAYMENT_FAILED, order, reason="payment_failed", now=now)
     if expired:
         raise ReservationExpired(
             "The stock hold for this order expired before payment, so the order was canceled.",
@@ -248,6 +257,7 @@ def cancel(order_id: int, *, reason: str = "customer_canceled", now: datetime | 
                 current_status=order.status,
             )
         _release_and_cancel(order, reason, now)
+        events.record_order_event(events.ORDER_CANCELED, order, reason=reason, now=now)
     return order
 
 
@@ -281,5 +291,8 @@ def release_expired(*, now: datetime | None = None, limit: int = 100) -> int:
             if not _has_expired_reservations(order, now):
                 continue
             _release_and_cancel(order, "reservation_expired", now)
+            events.record_order_event(
+                events.RESERVATION_EXPIRED, order, reason="reservation_expired", now=now, source="sweeper"
+            )
             released += 1
     return released

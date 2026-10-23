@@ -7,7 +7,7 @@ DB := $(COMPOSE) exec -T db
 -include .env
 export
 
-.PHONY: require-env up down reset migrate seed seed-large snapshot restore test test-backend test-frontend typecheck e2e types
+.PHONY: require-env up down reset migrate seed seed-large snapshot restore test test-backend test-frontend typecheck e2e types backfill-sales events-logs
 
 require-env:
 	@test -f .env || { echo "Missing .env. Run: cp .env.example .env"; exit 1; }
@@ -62,6 +62,13 @@ typecheck: require-env
 # Playwright smoke test against the running, seeded stack (make up && make reset first)
 e2e: require-env
 	$(COMPOSE) --profile e2e run --rm e2e
+
+# One-off: recount sales_count without canceled/unavailable orders (safe to re-run)
+backfill-sales: require-env
+	$(BACKEND) python manage.py backfill_sales_count
+
+events-logs: require-env
+	$(COMPOSE) logs -f relay consumers
 
 types: require-env
 	$(COMPOSE) exec -T backend python manage.py spectacular --validate > frontend/src/lib/api/schema.yml
