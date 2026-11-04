@@ -2,6 +2,9 @@ import { expect, test, type Page } from "@playwright/test"
 
 const EMAIL = process.env.E2E_USER_EMAIL ?? "customer@example.com"
 const PASSWORD = process.env.E2E_USER_PASSWORD ?? "devpass123"
+const MAILPIT = process.env.MAILPIT_URL ?? "http://localhost:8025"
+// Anything that waits on the Celery worker (webhook delivery, email) gets a generous timeout
+const ASYNC_TIMEOUT = 30_000
 
 async function logIn(page: Page) {
   await page.goto("/login?next=/shop")
@@ -27,7 +30,7 @@ async function emptyCart(page: Page) {
   await expect(page.getByText("Your cart is empty")).toBeVisible()
 }
 
-test("log in → add to cart → checkout → simulate payment → approved", async ({ page }) => {
+test("log in → add to cart → checkout → pay on the provider's page → approved + email", async ({ page, request }) => {
   const pageErrors: string[] = []
   page.on("pageerror", (error) => pageErrors.push(error.message))
 
@@ -57,14 +60,34 @@ test("log in → add to cart → checkout → simulate payment → approved", as
   await expect(page.getByLabel("CEP")).toHaveValue("01310-100")
   await page.getByRole("button", { name: "Place order" }).click()
 
-  // Order page: held stock, then simulated payment
+  // Order page: held stock, then pay on the (fake) provider's hosted page
   await expect(page).toHaveURL((url) => /^\/orders\/[0-9a-f]{32}$/.test(url.pathname), { timeout: 30_000 })
+  const orderId = new URL(page.url()).pathname.split("/").at(-1)!
   const status = page.getByTestId("order-status")
   await expect(status).toHaveText("Awaiting payment")
   await expect(page.getByRole("timer")).toContainText("Stock held for")
-  await page.getByRole("button", { name: "Simulate payment success" }).click()
-  await expect(status).toHaveText("Approved", { timeout: 30_000 })
+  await page.getByRole("button", { name: /^Pay R\$/ }).click()
+
+  await expect(page).toHaveURL((url) => url.pathname.startsWith("/api/fake-provider/pay/pi_"))
+  await page.getByRole("radio", { name: "Succeed", exact: true }).check()
+  await page.getByRole("button", { name: /^Pay R\$/ }).click()
+
+  // Back on the order page; the webhook confirms asynchronously (Celery worker -> Django)
+  await expect(page).toHaveURL((url) => url.pathname === `/orders/${orderId}`, { timeout: ASYNC_TIMEOUT })
+  await expect(status).toHaveText("Approved", { timeout: ASYNC_TIMEOUT })
   await expect(page.getByText("Payment received")).toBeVisible()
+
+  // Exactly one confirmation email (consumer -> sender -> Mailpit)
+  const subject = `Payment confirmed for order #${orderId.slice(0, 8)}`
+  await expect
+    .poll(
+      async () => {
+        const response = await request.get(`${MAILPIT}/api/v1/search`, { params: { query: `subject:"${subject}"` } })
+        return (await response.json()).messages_count
+      },
+      { timeout: ASYNC_TIMEOUT },
+    )
+    .toBe(1)
 
   // And it's listed under Orders
   await page.goto("/orders")

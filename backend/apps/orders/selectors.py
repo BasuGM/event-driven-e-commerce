@@ -5,6 +5,8 @@ from decimal import Decimal
 from django.db.models import Count, DecimalField, F, OuterRef, Prefetch, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 
+from apps.payments.models import PaymentIntent
+
 from .models import Order, OrderItem, Reservation
 
 MONEY = DecimalField(max_digits=12, decimal_places=2)
@@ -42,4 +44,5 @@ def order_detail(user):
             queryset=OrderItem.objects.select_related("product__category", "seller").order_by("item_number"),
         ),
         "status_history",
+        Prefetch("payment_intents", queryset=PaymentIntent.objects.order_by("-created_at", "-id")),
     )

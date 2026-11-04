@@ -246,7 +246,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/orders/{order_id}/pay/": {
+    "/api/orders/{order_id}/payment/": {
         parameters: {
             query?: never;
             header?: never;
@@ -255,8 +255,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Simulate a payment (dev/test only: ALLOW_FAKE_PAYMENTS) */
-        post: operations["orders_pay_create"];
+        /** Start paying for an order: creates (or reuses) its payment, returns where to pay */
+        post: operations["orders_payment_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -563,6 +563,7 @@ export interface components {
             readonly can_pay: boolean;
             readonly can_cancel: boolean;
             readonly payments_enabled: boolean;
+            readonly payment: components["schemas"]["OrderPayment"] | null;
         };
         OrderLine: {
             product_slug: string;
@@ -594,6 +595,18 @@ export interface components {
             /** Format: date-time */
             reservation_expires_at: string | null;
         };
+        OrderPayment: {
+            status: components["schemas"]["OrderPaymentStatusEnum"];
+            /** @description Paid after the order was canceled: a refund is due */
+            needs_refund: boolean;
+        };
+        /**
+         * @description * `requires_payment` - requires_payment
+         *     * `succeeded` - succeeded
+         *     * `failed` - failed
+         * @enum {string}
+         */
+        OrderPaymentStatusEnum: "requires_payment" | "succeeded" | "failed";
         /**
          * @description * `created` - Created
          *     * `approved` - Approved
@@ -612,12 +625,6 @@ export interface components {
             /** @description Age of the oldest unpublished event (null when none) */
             oldest_unpublished_age_seconds: number | null;
         };
-        /**
-         * @description * `success` - success
-         *     * `fail` - fail
-         * @enum {string}
-         */
-        OutcomeEnum: "success" | "fail";
         PaginatedOrderListList: {
             /** @example 123 */
             count: number;
@@ -666,8 +673,10 @@ export interface components {
         PatchedUpdateCartItemRequest: {
             quantity?: number;
         };
-        PayRequest: {
-            outcome: components["schemas"]["OutcomeEnum"];
+        PaymentStart: {
+            /** @description Send the customer here to pay (the provider's page) */
+            redirect_url: string;
+            status: string;
         };
         ProductDetail: {
             readonly slug: string;
@@ -1170,7 +1179,7 @@ export interface operations {
             };
         };
     };
-    orders_pay_create: {
+    orders_payment_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -1179,20 +1188,14 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PayRequest"];
-                "application/x-www-form-urlencoded": components["schemas"]["PayRequest"];
-                "multipart/form-data": components["schemas"]["PayRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OrderDetail"];
+                    "application/json": components["schemas"]["PaymentStart"];
                 };
             };
             409: {

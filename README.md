@@ -22,7 +22,7 @@ folder is gitignored. The geolocation CSV is not used yet.
 ```sh
 cp .env.example .env   # adjust host ports here if 5432/6379/8000/3000 are taken
 make up                # build and start db, redis, backend, Celery worker + beat, event relay +
-                       # consumers, frontend
+                       # consumers, Mailpit, frontend
 make reset             # create the schema, import ~2,000 orders, create dev users
 ```
 
@@ -53,9 +53,14 @@ username (`admin`).
 
 Log in as `customer@example.com`, open a product, **Add to cart** on an offer, then **Cart →
 Checkout**. Placing the order holds the stock for 15 minutes (`RESERVATION_TTL_MINUTES`). On the
-order page use **Simulate payment success / failure** (dev only, `ALLOW_FAKE_PAYMENTS`). If you
-don't pay, the Celery `beat` + `worker` services cancel the order and return the stock within a
-minute of expiry (`docker compose logs -f worker`).
+order page click **Pay**: you land on **FakePay**, a dev-only payment page that behaves like
+Stripe Checkout (`ALLOW_FAKE_PAYMENTS`). Choose succeed, fail or "succeed after a delay", and
+optionally have each webhook delivered twice or out of order. You're sent back to the order,
+which updates when the signed webhook arrives (via the Celery `worker`). If you don't pay, the
+`beat` + `worker` services cancel the order and return the stock within a minute of expiry.
+
+Order emails (received, paid, failed, canceled, expired, refund due) are caught by Mailpit:
+open the URL from `make mail` (default http://localhost:8025).
 
 ## Events (dev)
 
@@ -65,6 +70,7 @@ outbox in the same transaction; the `relay` service publishes it to Redis Stream
 the cached product page. Watch it with `make events-logs`; the dashboard's health badges show
 the outbox backlog.
 
-Upgrading an existing checkout: add the `# --- Events ---` block from `.env.example` to your
-`.env` (`REVALIDATE_SECRET`, `FRONTEND_INTERNAL_URL`), run `make up && make migrate`, then
-`make backfill-sales` once (older data counted canceled orders as sales).
+Upgrading an existing checkout: add the `# --- Events ---`, `# --- Payments ---` and
+`# --- Email ---` blocks from `.env.example` to your `.env` (set `FRONTEND_PUBLIC_URL` to your
+frontend port), run `make up && make migrate`, then `make backfill-sales` once (older data counted
+canceled orders as sales).

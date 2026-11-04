@@ -7,14 +7,14 @@ DB := $(COMPOSE) exec -T db
 -include .env
 export
 
-.PHONY: require-env up down reset migrate seed seed-large snapshot restore test test-backend test-frontend typecheck e2e types backfill-sales events-logs
+.PHONY: require-env up down reset migrate seed seed-large snapshot restore test test-backend test-frontend typecheck e2e types backfill-sales events-logs mail
 
 require-env:
 	@test -f .env || { echo "Missing .env. Run: cp .env.example .env"; exit 1; }
 
 up: require-env
-	# --renew-anon-volumes: rebuild node_modules/.next volumes so new npm deps reach the container
-	$(COMPOSE) up -d --build --wait --renew-anon-volumes
+	# New npm deps reach the container via frontend/dev.sh (reinstalls when package-lock.json changes)
+	$(COMPOSE) up -d --build --wait
 
 down: require-env
 	$(COMPOSE) down
@@ -73,6 +73,9 @@ backfill-sales: require-env
 
 events-logs: require-env
 	$(COMPOSE) logs -f relay consumers
+
+mail: require-env
+	@echo "Mailpit (every email the app sends): http://localhost:$${MAILPIT_HOST_PORT:-8025}"
 
 types: require-env
 	$(COMPOSE) exec -T backend python manage.py spectacular --validate > frontend/src/lib/api/schema.yml

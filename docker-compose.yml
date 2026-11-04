@@ -98,16 +98,24 @@ services:
       redis:
         condition: service_healthy
 
+  # Dev SMTP server: catches every email (UI: http://localhost:${MAILPIT_HOST_PORT}, make mail)
+  mailpit:
+    image: axllent/mailpit:v1.29.5
+    ports:
+      - "${MAILPIT_HOST_PORT:-8025}:8025"
+
   frontend:
     build: ./frontend
     env_file: .env
-    command: npm run dev
+    # dev.sh reinstalls deps into the volume only when package-lock.json changes
+    command: ["sh", "dev.sh"]
     ports:
       - "${FRONTEND_HOST_PORT:-3000}:3000"
     volumes:
       - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
+      # Named (not anonymous) so restarts reuse them instead of leaving ~1 GB orphans behind
+      - frontend_node_modules:/app/node_modules
+      - frontend_next:/app/.next
     depends_on:
       - backend
 
@@ -122,6 +130,7 @@ services:
       CI: "1"
       E2E_USER_EMAIL: customer@example.com
       E2E_USER_PASSWORD: ${DEV_USER_PASSWORD:-devpass123}
+      MAILPIT_URL: http://mailpit:8025
     command: ["sh", "e2e/run.sh"]
     volumes:
       - ./frontend:/app
@@ -133,3 +142,5 @@ volumes:
   pgdata:
   redisdata:
   e2e_node_modules:
+  frontend_node_modules:
+  frontend_next:

@@ -135,3 +135,51 @@ def placed_order(make_user, make_offer, fill_cart, address):
     fill_cart(user, (a, 2), (b, 1))
     order = checkout(user, address)
     return order, user, (a, b)
+
+
+# --- payments ---------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def webhook_poster(api_client):
+    """Delivers the fake provider's webhooks through the real view (raw body + header)."""
+    from urllib.parse import urlparse
+
+    calls = []
+
+    def post(url, body, headers):
+        response = api_client.generic(
+            "POST", urlparse(url).path, body, content_type="application/json",
+            HTTP_FAKE_SIGNATURE=headers["Fake-Signature"],
+        )
+        calls.append(response)
+        return response.status_code
+
+    post.calls = calls
+    return post
+
+
+@pytest.fixture
+def awaiting_payment(placed_order):
+    """An unpaid order with its fake-provider payment started: (order, intent, fake_intent)."""
+    from apps.fake_provider.models import FakeIntent
+    from apps.payments.services import start_payment
+
+    order, user, offers = placed_order
+    intent = start_payment(order, return_url=f"/orders/{order.external_id}?payment=processing")
+    return order, intent, FakeIntent.objects.get(pk=intent.provider_payment_id)
+
+
+@pytest.fixture
+def run_deliveries(webhook_poster):
+    """Deliver scheduled fake-provider webhooks synchronously, in their scheduled order."""
+    from apps.fake_provider.models import FakeEvent
+    from apps.fake_provider.provider import deliver
+
+    def run(deliveries):
+        return [
+            deliver(FakeEvent.objects.get(pk=d.event_id), post=webhook_poster)
+            for d in sorted(deliveries, key=lambda d: d.countdown)
+        ]
+
+    return run

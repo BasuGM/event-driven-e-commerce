@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FakePay · Pay {{ amount }}</title>
+  <style>
+    :root { color-scheme: light dark; --fg: #1a1a1a; --muted: #666; --bg: #f6f6f4; --card: #fff; --line: #ddd; --accent: #4b3fd1; }
+    @media (prefers-color-scheme: dark) { :root { --fg: #eee; --muted: #aaa; --bg: #18181b; --card: #222226; --line: #3a3a40; --accent: #8f86ff; } }
+    body { margin: 0; font: 15px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+    main { max-width: 26rem; margin: 2rem auto; padding: 0 1rem; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 1.5rem; }
+    .brand { font-weight: 700; letter-spacing: .02em; color: var(--accent); }
+    .amount { font-size: 2rem; font-weight: 600; margin: .25rem 0; }
+    .muted { color: var(--muted); font-size: .875rem; }
+    fieldset { border: 0; padding: 0; margin: 1.25rem 0; }
+    label { display: flex; gap: .5rem; align-items: center; padding: .4rem 0; }
+    select { margin-left: 1.6rem; }
+    button { width: 100%; padding: .7rem; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+    .notice { padding: .75rem; border-radius: 8px; border: 1px solid var(--line); }
+  </style>
+</head>
+<body>
+<main>
+  <p class="brand">FakePay <span class="muted">· test mode, no real money</span></p>
+  <div class="card">
+    <p class="muted">Order {{ intent.reference|slice:":8" }}</p>
+    <p class="amount">{{ amount }}</p>
+    {% if expired %}
+      <p class="notice" role="alert">This payment has expired: the store stopped holding your items. Go back to the store to see your order.</p>
+    {% elif intent.status != "requires_payment" %}
+      <p class="notice">This payment was already {{ intent.get_status_display|lower }}.</p>
+    {% else %}
+      <form method="post">
+        {% csrf_token %}
+        <fieldset>
+          <legend class="muted">Simulate the outcome</legend>
+          <label><input type="radio" name="choice" value="succeed" checked> Succeed</label>
+          <label><input type="radio" name="choice" value="fail"> Fail (card declined)</label>
+          <label><input type="radio" name="choice" value="succeed_later"> Succeed, but deliver the webhook after a delay</label>
+          <select name="delay" aria-label="Delay">
+            {% for value, label in delays %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+          </select>
+        </fieldset>
+        <fieldset>
+          <legend class="muted">Webhook delivery</legend>
+          <label><input type="checkbox" name="twice" {% if twice_default %}checked{% endif %}> Deliver each webhook twice</label>
+          <label><input type="checkbox" name="out_of_order"> Declined first, then succeeded, delivered out of order</label>
+        </fieldset>
+        <button type="submit">Pay {{ amount }}</button>
+      </form>
+    {% endif %}
+  </div>
+  {% if intent.expires_at and not expired %}<p class="muted">Expires {{ intent.expires_at|date:"H:i:s" }} UTC</p>{% endif %}
+</main>
+</body>
+</html>

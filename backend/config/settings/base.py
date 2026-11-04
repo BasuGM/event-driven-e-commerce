@@ -31,6 +31,9 @@ INSTALLED_APPS = [
     "apps.orders",
     "apps.cart",
     "apps.events",
+    "apps.payments",
+    "apps.fake_provider",
+    "apps.notifications",
 ]
 
 MIDDLEWARE = [
@@ -133,6 +136,32 @@ RELAY_BATCH_SIZE = 100
 REVALIDATE_SECRET = os.environ.get("REVALIDATE_SECRET", "")
 FRONTEND_INTERNAL_URL = os.environ.get("FRONTEND_INTERNAL_URL", "")
 
+# --- Payments ---------------------------------------------------------------------------------
+PAYMENT_PROVIDER = os.environ.get("PAYMENT_PROVIDER", "fake")  # "fake" needs ALLOW_FAKE_PAYMENTS
+PAYMENT_WEBHOOK_SECRET = os.environ.get("PAYMENT_WEBHOOK_SECRET", "")
+PAYMENT_WEBHOOK_TOLERANCE_SECONDS = 300  # signed timestamp must be this fresh (limits replay)
+# Where the fake provider (Celery worker) delivers webhooks: the backend, inside compose
+BACKEND_INTERNAL_URL = os.environ.get("BACKEND_INTERNAL_URL", "http://backend:8000")
+FAKE_PROVIDER_DUPLICATE_DELIVERY = os.environ.get("FAKE_PROVIDER_DUPLICATE_DELIVERY", "false").lower() == "true"
+
+# --- Email / notifications ----------------------------------------------------------------------
+# Django 6.1's MAILERS (replaces the deprecated EMAIL_* settings). Mailpit in dev (make mail);
+# tests swap every mailer for the locmem backend automatically.
+MAILERS = {
+    "default": {
+        "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+        "OPTIONS": {
+            "host": os.environ.get("EMAIL_HOST", "mailpit"),
+            "port": int(os.environ.get("EMAIL_PORT", "1025")),
+            "timeout": 10,
+        },
+    }
+}
+DEFAULT_FROM_EMAIL = "Olist Commerce <orders@olist-commerce.local>"
+NOTIFICATION_MAX_ATTEMPTS = 8
+# Links in emails point at the storefront as the customer sees it
+FRONTEND_PUBLIC_URL = os.environ.get("FRONTEND_PUBLIC_URL", "http://localhost:3000")
+
 # --- Celery --------------------------------------------------------------------------------
 CELERY_BROKER_URL = REDIS_URL
 CELERY_TASK_IGNORE_RESULT = True
@@ -145,6 +174,10 @@ CELERY_BEAT_SCHEDULE = {
     "purge-expired-idempotency-keys": {
         "task": "apps.core.tasks.purge_expired_idempotency_keys",
         "schedule": 60.0 * 60 * 24,
+    },
+    "send-due-notifications": {
+        "task": "apps.notifications.tasks.send_due_notifications",
+        "schedule": 30.0,
     },
     "purge-old-events": {
         "task": "apps.events.tasks.purge_old_events",

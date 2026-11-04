@@ -18,3 +18,11 @@ EVENTS_MAX_DELIVERIES = 3
 EVENTS_BLOCK_MS = 10
 REVALIDATE_SECRET = "test-revalidate-secret"
 FRONTEND_INTERNAL_URL = "http://frontend.test"
+
+# Payments / email
+PAYMENT_PROVIDER = "fake"
+PAYMENT_WEBHOOK_SECRET = "whsec_test"
+BACKEND_INTERNAL_URL = "http://backend.test"
+FRONTEND_PUBLIC_URL = "http://shop.test"
+# Never enqueue onto the dev stack's Redis broker (the dev worker would pick test tasks up)
+CELERY_BROKER_URL = "memory://"

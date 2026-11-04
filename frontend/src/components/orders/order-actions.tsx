@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { browserApi, ensureCsrf, NETWORK_PROBLEM, toProblem } from "@/lib/api/browser"
+import { formatBRL } from "@/lib/format"
 
 const MESSAGES: Record<string, string> = {
   reservation_expired: "Too late: the stock hold expired, so the order was canceled and the items released.",
@@ -25,14 +26,19 @@ const MESSAGES: Record<string, string> = {
 
 export function OrderActions({
   orderId,
+  total,
   canPay,
   canCancel,
   paymentsEnabled,
+  paymentInProgress = false,
 }: {
   orderId: string
+  total: string
   canPay: boolean
   canCancel: boolean
   paymentsEnabled: boolean
+  /** Back from the provider, its webhook not here yet: paying again would only confuse things */
+  paymentInProgress?: boolean
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
@@ -59,50 +65,68 @@ export function OrderActions({
     })
 
   const path = { params: { path: { order_id: orderId } } }
-  const pay = (outcome: "success" | "fail") =>
-    act(outcome, () => browserApi.POST("/api/orders/{order_id}/pay/", { ...path, body: { outcome } }))
+  // Creates (or reuses) the payment, then leaves for the provider's hosted page. The provider
+  // sends the customer back here (?payment=processing) and confirms by webhook.
+  const pay = () =>
+    startTransition(async () => {
+      setBusy("pay")
+      setError(null)
+      try {
+        await ensureCsrf()
+        const { data, error, response } = await browserApi.POST("/api/orders/{order_id}/payment/", path)
+        if (data) {
+          window.location.assign(data.redirect_url)
+          return // keep the spinner while the browser navigates away
+        }
+        const problem = toProblem(response.status, error)
+        setError(MESSAGES[problem.code] ?? problem.message)
+        router.refresh()
+      } catch {
+        setError(NETWORK_PROBLEM.message)
+      }
+      setBusy(null)
+    })
   const cancel = () => act("cancel", () => browserApi.POST("/api/orders/{order_id}/cancel/", path))
 
   if (!canPay && !canCancel) return null
   return (
     <div className="space-y-3">
-      {paymentsEnabled && canPay && (
-        <div className="space-y-2 rounded-lg border border-dashed p-3">
-          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Dev only: simulate payment</p>
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" onClick={() => pay("success")} disabled={pending}>
-              {busy === "success" ? <Loader2 className="animate-spin" /> : <CreditCard />}
-              Simulate payment success
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => pay("fail")} disabled={pending}>
-              {busy === "fail" && <Loader2 className="animate-spin" />}
-              Simulate payment failure
-            </Button>
-          </div>
-        </div>
-      )}
-      {canCancel && (
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button size="sm" variant="ghost" disabled={pending}>
-              {busy === "cancel" ? <Loader2 className="animate-spin" /> : <XCircle />}
-              Cancel order
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Cancel this order?</AlertDialogTitle>
-              <AlertDialogDescription>Stock will be released.</AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Keep order</AlertDialogCancel>
-              <AlertDialogAction variant="destructive" onClick={cancel}>
+      <div className="flex flex-wrap items-center gap-2">
+        {paymentsEnabled && canPay && paymentInProgress && (
+          <Button disabled>
+            <Loader2 className="animate-spin" aria-hidden />
+            Payment in progress
+          </Button>
+        )}
+        {paymentsEnabled && canPay && !paymentInProgress && (
+          <Button onClick={pay} disabled={pending}>
+            {busy === "pay" ? <Loader2 className="animate-spin" /> : <CreditCard />}
+            Pay {formatBRL(total)}
+          </Button>
+        )}
+        {canCancel && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button size="sm" variant="ghost" disabled={pending}>
+                {busy === "cancel" ? <Loader2 className="animate-spin" /> : <XCircle />}
                 Cancel order
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      )}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Cancel this order?</AlertDialogTitle>
+                <AlertDialogDescription>Stock will be released.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Keep order</AlertDialogCancel>
+                <AlertDialogAction variant="destructive" onClick={cancel}>
+                  Cancel order
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
+      </div>
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}

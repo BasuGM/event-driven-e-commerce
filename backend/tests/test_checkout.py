@@ -5,7 +5,9 @@ import pytest
 from django.utils import timezone
 
 from apps.catalog.models import Offer, Product
+from apps.core.errors import InvalidTransition, ReservationExpired
 from apps.core.models import IdempotencyKey
+from apps.orders import services
 from apps.orders.models import Order, OrderItem, Payment, Reservation
 
 from .conftest import ADDRESS
@@ -180,7 +182,8 @@ def test_order_detail_query_count(user_client, make_offer, fill_cart, django_ass
     client = user_client()
     fill_cart(client.user, *((make_offer(), 2) for _ in range(4)))
     order_id = place(client).json()["id"]
-    with django_assert_max_num_queries(5):  # session, user, order+totals, items(+joins), history
+    # session, user, order+totals, items(+joins), history, payment intents
+    with django_assert_max_num_queries(6):
         client.get(f"/api/orders/{order_id}/")
 
 
@@ -196,11 +199,16 @@ def placed(user_client, make_offer, fill_cart):
     return client, offer, order_id
 
 
+# Payment arrives by webhook now (tests/test_payments_*.py); services.pay() is what the webhook
+# calls, so these keep pinning its behaviour.
+def pay(order_id, outcome, **kwargs):
+    return services.pay(Order.objects.get(external_id=order_id).pk, outcome, **kwargs)
+
+
 def test_pay_success_commits_and_approves(placed):
     client, offer, order_id = placed
-    response = client.post(f"/api/orders/{order_id}/pay/", {"outcome": "success"}, format="json")
-    assert response.status_code == 200
-    data = response.json()
+    pay(order_id, "success")
+    data = client.get(f"/api/orders/{order_id}/").json()
     assert data["status"] == "approved" and not data["can_pay"] and not data["can_cancel"]
     assert [h["reason"] for h in data["status_history"]] == ["checkout", "payment_succeeded"]
     order = Order.objects.get(external_id=order_id)
@@ -209,24 +217,25 @@ def test_pay_success_commits_and_approves(placed):
     offer.refresh_from_db()
     assert offer.stock == 3  # stays sold
 
-    again = client.post(f"/api/orders/{order_id}/pay/", {"outcome": "success"}, format="json")
-    assert again.status_code == 409 and again.json()["code"] == "invalid_transition"
+    with pytest.raises(InvalidTransition):
+        pay(order_id, "success")
 
 
 def test_pay_fail_releases_and_cancels(placed):
     client, offer, order_id = placed
-    data = client.post(f"/api/orders/{order_id}/pay/", {"outcome": "fail"}, format="json").json()
+    pay(order_id, "fail")
+    data = client.get(f"/api/orders/{order_id}/").json()
     assert data["status"] == "canceled"
     assert data["status_history"][-1]["reason"] == "payment_failed"
     offer.refresh_from_db()
     assert offer.stock == 5
 
 
-def test_pay_after_expiry_is_409_and_cancels(placed):
+def test_pay_after_expiry_raises_and_cancels(placed):
     client, offer, order_id = placed
     Reservation.objects.update(expires_at=timezone.now() - timedelta(seconds=1))
-    response = client.post(f"/api/orders/{order_id}/pay/", {"outcome": "success"}, format="json")
-    assert response.status_code == 409 and response.json()["code"] == "reservation_expired"
+    with pytest.raises(ReservationExpired):
+        pay(order_id, "success")
     order = Order.objects.get(external_id=order_id)
     assert order.status == "canceled"  # committed even though the request "failed"
     assert order.status_history.last().reason == "reservation_expired"
@@ -249,7 +258,7 @@ def test_customer_cancel(placed):
 def test_fake_payments_can_be_disabled(placed, settings):
     client, _, order_id = placed
     settings.ALLOW_FAKE_PAYMENTS = False
-    assert client.post(f"/api/orders/{order_id}/pay/", {"outcome": "success"}, format="json").status_code == 404
+    assert client.post(f"/api/orders/{order_id}/payment/").status_code == 404
     assert client.get(f"/api/orders/{order_id}/").json()["payments_enabled"] is False
 
 
@@ -281,7 +290,7 @@ def test_sweeper_ignores_paid_orders(placed):
     from apps.orders.services import release_expired
 
     client, offer, order_id = placed
-    client.post(f"/api/orders/{order_id}/pay/", {"outcome": "success"}, format="json")
+    pay(order_id, "success")
     assert release_expired(now=timezone.now() + timedelta(days=1)) == 0
     offer.refresh_from_db()
     assert offer.stock == 3

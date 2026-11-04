@@ -14,6 +14,9 @@ real Olist Brazilian E-Commerce dataset so there is realistic data from day one.
   icons, next-themes for dark mode), forms with shadcn `Field` + react-hook-form + zod. TanStack
   Table (data tables) and Recharts via shadcn's chart component (charts) are added with the first
   feature that uses them
+- **Payments:** a fake Stripe-like provider (`apps/fake_provider`, dev/test only) behind a
+  `PaymentGateway` interface; signed webhooks delivered by Celery
+- **Email:** Mailpit in dev (SMTP + web UI, `make mail`), Django `MAILERS`
 - **Types across the boundary:** OpenAPI schema → `openapi-typescript` generated client
 - **Tests:** pytest + pytest-django (backend), Vitest (frontend unit), Playwright (e2e smoke, in
   its own Docker image via `make e2e`)
@@ -38,6 +41,11 @@ backend/
   apps/events/      OutboxEvent, ProcessedEvent; outbox.py (record_event), relay.py,
                     consumer.py (framework), consumers/ (product_stats, cache_invalidation),
                     revalidate.py (calls Next), run_relay / run_consumers commands
+  apps/payments/    PaymentIntent, ProviderEvent; gateway.py (interface), signature.py (HMAC),
+                    services.py (start_payment, handle_webhook), webhook view
+  apps/fake_provider/  FakeIntent, FakeEvent, FakeGateway, hosted page, Celery delivery
+                    (dev/test only; URLs mounted only with ALLOW_FAKE_PAYMENTS)
+  apps/notifications/  Notification; rendering.py + templates, sender.py, tasks.py
   tests/            pytest suite; tests/fixtures/olist/ = tiny CSVs incl. messy rows
 frontend/src/
   app/              App Router pages (+ loading.tsx / error.tsx per data view);
@@ -85,6 +93,7 @@ with other local services; containers always talk to each other on the default p
 | `make migrate`    | Apply migrations                                          |
 | `make backfill-sales` | Recount `sales_count` without canceled/unavailable orders (one-off, re-runnable) |
 | `make events-logs` | Follow the relay and consumers logs                      |
+| `make mail`       | Print the Mailpit URL (every email the app sends lands there) |
 
 `make up` also starts the Celery `worker` and `beat` services (see their logs with
 `docker compose logs -f worker beat`) and the event `relay` and `consumers` services. Until
@@ -199,7 +208,8 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   Every endpoint requires a session by default; public views opt out.
 - Another user's order or cart line is a **404**, never a 403.
 - Endpoints: `/api/auth/{csrf,me,login,logout,register}/`, `/api/cart/`, `/api/cart/items/[{id}/]`,
-  `/api/checkout/`, `/api/orders/[{id}/[pay/|cancel/]]`. Order URLs use the 32-hex external ID.
+  `/api/checkout/`, `/api/orders/[{id}/[payment/|cancel/]]`, `/api/payments/webhook/` (no session:
+  HMAC-signed), `/api/fake-provider/pay/<pi_id>/` (dev). Order URLs use the 32-hex external ID.
 
 ## Orders, stock and locking (important)
 
@@ -207,8 +217,8 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   decremented at checkout (a `Reservation` holds it for `RESERVATION_TTL_MINUTES`), returned on
   release, kept on payment. `stock` has `CHECK (stock >= 0)` as a backstop. The importer only
   sets stock when it *creates* an offer.
-- **Lock order: Cart (owner) → Order → Offers by ascending id → (after commit, own tx) Products by
-  ascending id.** Always `select_for_update()` with `order_by("id")`; never lock in another order.
+- **Lock order: Cart (owner) → Order → PaymentIntent → Offers by ascending id → (after commit, own
+  tx) Products by ascending id.** Always `select_for_update()` with `order_by("id")`; never lock in another order.
 - Reservations are committed/released with a conditional `UPDATE … WHERE status='active'`, so each
   happens at most once even under races.
 - Order status changes only through `apps/orders/state.transition()` (explicit table, writes
@@ -221,7 +231,8 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   expire after 24 h. Same key → replay; same key + different body → 409; failures aren't stored.
 - Celery: `release_expired_reservations` every minute (each order in its own transaction,
   `SKIP LOCKED`, idempotent) and a daily idempotency-key purge.
-- `ALLOW_FAKE_PAYMENTS` (dev/test only) enables `POST /api/orders/{id}/pay/`.
+- `ALLOW_FAKE_PAYMENTS` (dev/test only) enables the fake payment provider (hosted page, webhook
+  delivery). Payment state changes only arrive through the webhook (see "Payments").
 - Order items are stored one row per unit (like Olist); APIs group them into lines.
 - After any stock change, `refresh_product_stats_on_commit(product_ids)` refreshes `min_price`
   and ratings synchronously (per-product SQL, products locked in id order, retried on deadlock,
@@ -230,6 +241,51 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   consumer owns it (seconds of lag).
 - Every order state change records a domain event with `events.record_order_event()` in the
   same transaction (see "Events").
+
+## Payments (fake provider, webhooks)
+
+- **Interface:** `apps/payments/gateway.py` `PaymentGateway` (`create_payment`, `parse_webhook`);
+  `get_gateway()` picks `PAYMENT_PROVIDER` (`fake`). A real provider = one more class.
+- **Two models, two jobs:** `payments.PaymentIntent` = the provider lifecycle (one open intent
+  per order, `needs_refund`); `orders.Payment` = the settled ledger (Olist's shape), written by
+  `services.pay()` on success.
+- **Flow:** `POST /api/orders/{id}/payment/` creates or reuses the intent → the customer pays on
+  the provider's hosted page → back to `/orders/<id>?payment=processing` (the page polls) → the
+  provider delivers a signed webhook (Celery, with retries) → `handle_webhook` → `services.pay()`.
+  `OrderPaid` / `PaymentFailed` / `ReservationExpired` still come from the outbox.
+- **No HTTP inside transactions:** `create_payment` runs before the short transaction that saves
+  the intent; its idempotency key (`order:<id>:intent`) dedupes concurrent clicks.
+- **Signature:** `Fake-Signature: t=<unix>,v1=<hex>`, `v1 = HMAC-SHA256(PAYMENT_WEBHOOK_SECRET,
+  "<t>." + raw body)`, ±`PAYMENT_WEBHOOK_TOLERANCE_SECONDS` (300), `hmac.compare_digest`, several
+  `v1` allowed (rotation). Verified over the **raw bytes** (a plain Django view, not DRF), JSON
+  parsed only afterwards; failures are a vague 400.
+- **Idempotency:** `ProviderEvent` unique on `(provider, provider_event_id)`: duplicates return
+  200 and do nothing. Then Order → PaymentIntent are locked.
+- **State rules:** expiry is judged by the event's own `created` time (paid in time + stock still
+  held = approved, however late the webhook). A decline cancels the order (`PaymentFailed`). A
+  decline older than an applied success is `ignored_stale`. A success for an order that's
+  canceled/expired (or already paid) never revives it: the intent is flagged `needs_refund` and a
+  `PaymentRefundDue` event is recorded in the same transaction (no refund logic yet; admin
+  PaymentIntent list filtered by `needs_refund`).
+- **Fake provider page** (`/api/fake-provider/pay/<pi_id>/`, served through the Next proxy so one
+  relative URL works for every browser): succeed / fail / succeed after a delay, plus "deliver
+  each webhook twice" and "declined then succeeded, delivered out of order";
+  `FAKE_PROVIDER_DUPLICATE_DELIVERY` makes "twice" the default. It refuses after the hold expires.
+
+## Notifications (email)
+
+- The `notifications` consumer writes a pending `Notification` (unique `(event_id, kind)`,
+  subject/text/HTML rendered then) in its transaction and enqueues `send_notification` on
+  commit. **Email is never sent inside the consumer's transaction.** Kinds: order_placed,
+  order_paid, payment_failed, order_canceled, reservation_expired, refund_due.
+- Sender (`apps/notifications/sender.py`, Celery): one row per transaction, `SKIP LOCKED`, marked
+  sent with the send; failures retry with backoff (30 s doubling, max 1 h) up to
+  `NOTIFICATION_MAX_ATTEMPTS` (8), then `failed`. Beat `send_due_notifications` (30 s) covers
+  retries and lost enqueues. A replay can't send twice (ProcessedEvent + the unique row).
+- Known gap: a crash after SMTP accepted the message but before the commit resends it once
+  (deterministic `Message-ID: <notification-<id>@olist-commerce.local>`).
+- Templates `notifications/order_email.{txt,html}`; money via `apps.core.formatting.format_brl`
+  ("R$ 1.234,50"); links use `FRONTEND_PUBLIC_URL`. Dev mail goes to Mailpit (`make mail`).
 
 ## Events (outbox → relay → Redis Streams → consumers)
 
@@ -258,6 +314,15 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   - `cache_invalidation` (`ProductsChanged`): POSTs the products' cache tags to the frontend's
     `/internal/revalidate` (header `x-revalidate-secret`). Chained so revalidation always
     follows the recompute.
+  - `notifications` (order events + `PaymentRefundDue`): order emails (see "Notifications").
+- `PaymentRefundDue` (stream `events:order`) is recorded by the payment webhook when money
+  arrives for an order that can't take it.
+- **No inventory consumer (yet), on purpose:** oversell protection stays synchronous in
+  `checkout()`; `min_price` stays on-commit (in-stock filter must be right at once); stock-driven
+  cache refresh already flows through `product_stats` → `ProductsChanged`. `StockLow`/`OutOfStock`
+  events would have no reader. When a feature needs one (back-in-stock alerts, restocking), emit
+  `OfferStockChanged` from `services.py` (every stock change is there) and build the consumer
+  with it.
 - **Dashboard stats stay on-request** (four `COUNT(*)`s): products/sellers come from the
   importer (no events), so event-maintained counters would need a backfill and could drift.
 - Beat purges published outbox rows and ProcessedEvent rows after `EVENTS_RETENTION_DAYS`.
@@ -266,7 +331,8 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   same Redis DB are untouched). Otherwise consumers would replay old events against fresh data.
   Dev/test only (`ALLOW_DEV_SEED`).
 - `/api/health` reports the outbox backlog (unpublished count, oldest age); informational only.
-- Tests use the real compose Redis (DB 15, `test-events:` prefix, keys cleared per test).
+- Tests use the real compose Redis (DB 15, `test-events:` prefix, keys cleared per test) and
+  Celery's in-memory broker (never the dev Redis broker).
 
 ## UI rules
 
@@ -311,6 +377,11 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   `ALLOW_DEV_SEED`).
 - A real `REVALIDATE_SECRET`; keep `/internal/revalidate` off the public edge (it's for the
   backend containers only).
+- A real `PAYMENT_WEBHOOK_SECRET`, a real `PAYMENT_PROVIDER`, `ALLOW_FAKE_PAYMENTS` off (no fake
+  provider URLs), a real SMTP `MAILERS["default"]` and `FRONTEND_PUBLIC_URL`.
+- The webhook's HMAC is over the **raw body**. If production routes it through the Next `/api`
+  rewrite, verify the bytes arrive unchanged (no re-encoding/decompression), or point the
+  provider directly at Django.
 
 ## Known issues
 
@@ -325,8 +396,10 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   browser console under React 19. Harmless (the theme script runs during SSR); no newer
   release yet.
 - First visit to a route on the dev server compiles it (can take a minute on macOS bind
-  mounts); later requests are fast. `make up` renews the node_modules volume
-  (`--renew-anon-volumes`) so new npm dependencies reach the container.
+  mounts); later requests are fast. `node_modules` and `.next` live in named volumes
+  (`frontend_node_modules`, `frontend_next`); `frontend/dev.sh` runs `npm ci` into the volume only
+  when `package-lock.json` changes, so new npm dependencies reach the container. Don't use
+  anonymous volumes or `--renew-anon-volumes` here: each `make up` orphaned ~1 GB of volumes.
 
 - `npm audit` reports high-severity findings via the `shadcn` package (`braces` / `fast-glob`
   glob handling). `shadcn` is a runtime dependency only so `globals.css` can import

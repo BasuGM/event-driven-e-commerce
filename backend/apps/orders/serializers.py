@@ -2,12 +2,12 @@ import re
 from collections import OrderedDict
 from decimal import Decimal
 
-from django.conf import settings
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.catalog.serializers import CategoryRefSerializer
+from apps.payments.gateway import payments_enabled
 
 from .models import Order, OrderStatusHistory
 
@@ -31,10 +31,6 @@ class ShippingAddressSerializer(serializers.Serializer):
 
 class CheckoutSerializer(serializers.Serializer):
     shipping = ShippingAddressSerializer()
-
-
-class PaySerializer(serializers.Serializer):
-    outcome = serializers.ChoiceField(choices=["success", "fail"])
 
 
 class ErrorLineSerializer(serializers.Serializer):
@@ -103,6 +99,11 @@ class OrderListSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class OrderPaymentSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(["requires_payment", "succeeded", "failed"])
+    needs_refund = serializers.BooleanField(help_text="Paid after the order was canceled: a refund is due")
+
+
 class OrderDetailSerializer(serializers.ModelSerializer):
     """Expects an order from ``selectors.orders_with_totals()`` with items (product, category,
     seller), status history and reservations prefetched.
@@ -123,13 +124,14 @@ class OrderDetailSerializer(serializers.ModelSerializer):
     can_pay = serializers.SerializerMethodField()
     can_cancel = serializers.SerializerMethodField()
     payments_enabled = serializers.SerializerMethodField()
+    payment = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
         fields = [
             "id", "status", "purchased_at", "approved_at", "lines", "item_count", "items_total",
             "freight_total", "total", "shipping", "status_history", "reservation_expires_at",
-            "can_pay", "can_cancel", "payments_enabled",
+            "can_pay", "can_cancel", "payments_enabled", "payment",
         ]
         read_only_fields = fields
 
@@ -167,4 +169,10 @@ class OrderDetailSerializer(serializers.ModelSerializer):
         return order.status == Order.Status.CREATED
 
     def get_payments_enabled(self, order) -> bool:
-        return settings.ALLOW_FAKE_PAYMENTS
+        return payments_enabled()
+
+    @extend_schema_field(OrderPaymentSerializer(allow_null=True))
+    def get_payment(self, order):
+        # Latest provider payment; prefetched (newest first) by selectors.order_detail
+        intents = list(order.payment_intents.all())
+        return OrderPaymentSerializer(intents[0]).data if intents else None

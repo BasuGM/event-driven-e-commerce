@@ -352,10 +352,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/DomainError'
           description: ''
-  /api/orders/{order_id}/pay/:
+  /api/orders/{order_id}/payment/:
     post:
-      operationId: orders_pay_create
-      summary: 'Simulate a payment (dev/test only: ALLOW_FAKE_PAYMENTS)'
+      operationId: orders_payment_create
+      summary: 'Start paying for an order: creates (or reuses) its payment, returns
+        where to pay'
       parameters:
       - in: path
         name: order_id
@@ -364,18 +365,6 @@ paths:
         required: true
       tags:
       - orders
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PayRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/PayRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/PayRequest'
-        required: true
       security:
       - cookieAuth: []
       responses:
@@ -383,7 +372,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/OrderDetail'
+                $ref: '#/components/schemas/PaymentStart'
           description: ''
         '409':
           content:
@@ -1017,6 +1006,11 @@ components:
         payments_enabled:
           type: boolean
           readOnly: true
+        payment:
+          allOf:
+          - $ref: '#/components/schemas/OrderPayment'
+          nullable: true
+          readOnly: true
       required:
       - approved_at
       - can_cancel
@@ -1026,6 +1020,7 @@ components:
       - item_count
       - items_total
       - lines
+      - payment
       - payments_enabled
       - purchased_at
       - reservation_expires_at
@@ -1115,6 +1110,27 @@ components:
       - reservation_expires_at
       - status
       - total
+    OrderPayment:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/OrderPaymentStatusEnum'
+        needs_refund:
+          type: boolean
+          description: 'Paid after the order was canceled: a refund is due'
+      required:
+      - needs_refund
+      - status
+    OrderPaymentStatusEnum:
+      enum:
+      - requires_payment
+      - succeeded
+      - failed
+      type: string
+      description: |-
+        * `requires_payment` - requires_payment
+        * `succeeded` - succeeded
+        * `failed` - failed
     OrderStatusEnum:
       enum:
       - created
@@ -1148,14 +1164,6 @@ components:
       required:
       - oldest_unpublished_age_seconds
       - unpublished
-    OutcomeEnum:
-      enum:
-      - success
-      - fail
-      type: string
-      description: |-
-        * `success` - success
-        * `fail` - fail
     PaginatedOrderListList:
       type: object
       required:
@@ -1232,13 +1240,17 @@ components:
           type: integer
           maximum: 10
           minimum: 1
-    PayRequest:
+    PaymentStart:
       type: object
       properties:
-        outcome:
-          $ref: '#/components/schemas/OutcomeEnum'
+        redirect_url:
+          type: string
+          description: Send the customer here to pay (the provider's page)
+        status:
+          type: string
       required:
-      - outcome
+      - redirect_url
+      - status
     ProductDetail:
       type: object
       properties:

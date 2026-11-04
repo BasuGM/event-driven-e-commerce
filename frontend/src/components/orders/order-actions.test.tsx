@@ -13,7 +13,7 @@ vi.mock("@/lib/api/browser", () => ({
 }))
 
 function renderActions() {
-  render(<OrderActions orderId="abc" canPay={false} canCancel paymentsEnabled={false} />)
+  render(<OrderActions orderId="abc" total="88.00" canPay={false} canCancel paymentsEnabled={false} />)
   fireEvent.click(screen.getByRole("button", { name: "Cancel order" }))
   return screen.getByRole("alertdialog", { name: "Cancel this order?" })
 }
@@ -36,5 +36,40 @@ describe("OrderActions cancel", () => {
     fireEvent.click(dialog.querySelector("[data-slot=alert-dialog-action]")!)
 
     await waitFor(() => expect(post).toHaveBeenCalledWith("/api/orders/{order_id}/cancel/", expect.anything()))
+  })
+})
+
+describe("OrderActions pay", () => {
+  beforeEach(() => post.mockReset())
+
+  it("starts the payment and goes to the provider's page", async () => {
+    const assign = vi.fn()
+    vi.stubGlobal("location", { ...window.location, assign })
+    post.mockResolvedValue({
+      data: { redirect_url: "/api/fake-provider/pay/pi_123/", status: "requires_payment" },
+      response: new Response(null, { status: 200 }),
+    })
+    render(<OrderActions orderId="abc" total="88.00" canPay canCancel paymentsEnabled />)
+
+    // Intl puts a non-breaking space after "R$"
+    fireEvent.click(screen.getByRole("button", { name: /^Pay R\$\s88,00$/ }))
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("/api/fake-provider/pay/pi_123/"))
+    expect(post).toHaveBeenCalledWith("/api/orders/{order_id}/payment/", { params: { path: { order_id: "abc" } } })
+    vi.unstubAllGlobals()
+  })
+
+  it("shows a disabled 'Payment in progress' instead of Pay while the provider confirms", () => {
+    render(<OrderActions orderId="abc" total="88.00" canPay canCancel paymentsEnabled paymentInProgress />)
+
+    expect(screen.queryByRole("button", { name: /^Pay R\$/ })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Payment in progress" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Cancel order" })).toBeEnabled() // cancel stays
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it("hides Pay when payments are disabled", () => {
+    render(<OrderActions orderId="abc" total="88.00" canPay canCancel paymentsEnabled={false} />)
+    expect(screen.queryByRole("button", { name: /^Pay/ })).not.toBeInTheDocument()
   })
 })

@@ -3,7 +3,8 @@ FROM node:22-slim
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+# Stamp the lockfile hash so dev.sh skips reinstalling into a freshly created volume
+RUN npm ci && sha1sum package-lock.json | cut -d' ' -f1 > node_modules/.lock-hash
 
 COPY . .
 

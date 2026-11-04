@@ -1,0 +1,15 @@
+{% autoescape off %}Hi {{ name }},
+
+{{ intro }}
+
+Order {{ number }}
+{% for line in lines %}  {{ line.quantity }} x {{ line.name }}  {{ line.total }}
+{% endfor %}
+Items:    {{ items_total }}
+Shipping: {{ freight_total }}
+Total:    {{ total }}
+
+View your order: {{ order_url }}
+
+Olist Commerce
+{% endautoescape %}

@@ -1,6 +1,5 @@
 import re
 
-from django.conf import settings
 from django.http import Http404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -19,7 +18,6 @@ from .serializers import (
     DomainErrorSerializer,
     OrderDetailSerializer,
     OrderListSerializer,
-    PaySerializer,
 )
 
 IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9_\-:.]{8,255}$")
@@ -95,22 +93,6 @@ class OrderDetailView(OrderMixin, APIView):
         if order is None:
             raise Http404
         return Response(OrderDetailSerializer(order, context={"request": request}).data)
-
-
-class OrderPayView(OrderMixin, APIView):
-    @extend_schema(
-        summary="Simulate a payment (dev/test only: ALLOW_FAKE_PAYMENTS)",
-        request=PaySerializer,
-        responses={200: OrderDetailSerializer, 409: DomainErrorSerializer},
-    )
-    def post(self, request, order_id: str):
-        if not settings.ALLOW_FAKE_PAYMENTS:
-            raise Http404
-        order = self.get_order(request, order_id)
-        data = PaySerializer(data=request.data)
-        data.is_valid(raise_exception=True)
-        services.pay(order.pk, data.validated_data["outcome"])
-        return Response(_detail(request, order))
 
 
 class OrderCancelView(OrderMixin, APIView):
