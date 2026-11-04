@@ -22,7 +22,7 @@ folder is gitignored. The geolocation CSV is not used yet.
 ```sh
 cp .env.example .env   # adjust host ports here if 5432/6379/8000/3000 are taken
 make up                # build and start db, redis, backend, Celery worker + beat, event relay +
-                       # consumers, Mailpit, frontend
+                       # consumers, the SSE stream service, Mailpit, frontend
 make reset             # create the schema, import ~2,000 orders, create dev users
 ```
 
@@ -56,7 +56,8 @@ Checkout**. Placing the order holds the stock for 15 minutes (`RESERVATION_TTL_M
 order page click **Pay**: you land on **FakePay**, a dev-only payment page that behaves like
 Stripe Checkout (`ALLOW_FAKE_PAYMENTS`). Choose succeed, fail or "succeed after a delay", and
 optionally have each webhook delivered twice or out of order. You're sent back to the order,
-which updates when the signed webhook arrives (via the Celery `worker`). If you don't pay, the
+which shows "Payment in progress" and updates live (Server-Sent Events) when the signed webhook
+arrives via the Celery `worker`, without polling or reloading. If you don't pay, the
 `beat` + `worker` services cancel the order and return the stock within a minute of expiry.
 
 Order emails (received, paid, failed, canceled, expired, refund due) are caught by Mailpit:

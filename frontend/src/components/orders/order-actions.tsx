@@ -66,7 +66,8 @@ export function OrderActions({
 
   const path = { params: { path: { order_id: orderId } } }
   // Creates (or reuses) the payment, then leaves for the provider's hosted page. The provider
-  // sends the customer back here (?payment=processing) and confirms by webhook.
+  // sends the customer back via /api/orders/<id>/payment/return/ (marks "processing") and
+  // confirms by webhook; the live stream updates the page.
   const pay = () =>
     startTransition(async () => {
       setBusy("pay")
@@ -88,11 +89,11 @@ export function OrderActions({
     })
   const cancel = () => act("cancel", () => browserApi.POST("/api/orders/{order_id}/cancel/", path))
 
-  if (!canPay && !canCancel) return null
+  if (!canPay && !canCancel && !paymentInProgress) return null
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        {paymentsEnabled && canPay && paymentInProgress && (
+        {paymentsEnabled && paymentInProgress && (
           <Button disabled>
             <Loader2 className="animate-spin" aria-hidden />
             Payment in progress

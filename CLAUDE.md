@@ -16,6 +16,8 @@ real Olist Brazilian E-Commerce dataset so there is realistic data from day one.
   feature that uses them
 - **Payments:** a fake Stripe-like provider (`apps/fake_provider`, dev/test only) behind a
   `PaymentGateway` interface; signed webhooks delivered by Celery
+- **Live updates:** Server-Sent Events from a separate ASGI `stream` service (uvicorn, same
+  Django code), signalled through Redis Pub/Sub; the rest of the API stays on WSGI
 - **Email:** Mailpit in dev (SMTP + web UI, `make mail`), Django `MAILERS`
 - **Types across the boundary:** OpenAPI schema → `openapi-typescript` generated client
 - **Tests:** pytest + pytest-django (backend), Vitest (frontend unit), Playwright (e2e smoke, in
@@ -27,6 +29,7 @@ real Olist Brazilian E-Commerce dataset so there is realistic data from day one.
 ```
 backend/
   config/settings/  base.py, dev.py, test.py (DJANGO_SETTINGS_MODULE picks one)
+  config/asgi.py    ASGI app for the `stream` service (SSE only)
   apps/accounts/    custom User model (AUTH_USER_MODEL = accounts.User), session auth API
   apps/core/        health + stats endpoints, Olist importer, management commands,
                     IdempotencyKey + idempotency.py, domain errors (errors.py)
@@ -37,9 +40,11 @@ backend/
   apps/orders/      Order, OrderItem, Payment, Review, Reservation, OrderStatusHistory;
                     state.py (state machine), services.py (checkout/pay/cancel/expiry — the
                     only code that changes stock), events.py (order event names + payloads),
+                    live.py (snapshot, version, Pub/Sub signal), stream.py (SSE view),
                     selectors.py, tasks.py (Celery)
   apps/events/      OutboxEvent, ProcessedEvent; outbox.py (record_event), relay.py,
-                    consumer.py (framework), consumers/ (product_stats, cache_invalidation),
+                    consumer.py (framework), consumers/ (product_stats, cache_invalidation,
+                    notifications, order_live),
                     revalidate.py (calls Next), run_relay / run_consumers commands
   apps/payments/    PaymentIntent, ProviderEvent; gateway.py (interface), signature.py (HMAC),
                     services.py (start_payment, handle_webhook), webhook view
@@ -57,6 +62,7 @@ frontend/src/
                     server.ts (as-the-visitor fetchers, forwards cookies), browser.ts (same-origin
                     client for Client Components, sends X-CSRFToken)
   lib/cache-tags.ts  cache tag names (productTag, ALL_PRODUCTS), shared with the backend
+  lib/use-order-live.ts  EventSource hook for the order page (SSE; slow-poll fallback)
   lib/checkout-attempt.ts  idempotency keys for checkout (reuse on retry)
   lib/shop-params.ts  URL search params <-> shop filters (the only translation layer)
 frontend/e2e/       Playwright smoke tests (run.sh is the e2e container entry point)
@@ -92,11 +98,12 @@ with other local services; containers always talk to each other on the default p
 | `make types`      | Regenerate OpenAPI schema and the TS client               |
 | `make migrate`    | Apply migrations                                          |
 | `make backfill-sales` | Recount `sales_count` without canceled/unavailable orders (one-off, re-runnable) |
-| `make events-logs` | Follow the relay and consumers logs                      |
+| `make events-logs` | Follow the relay, consumers and stream (SSE) logs        |
 | `make mail`       | Print the Mailpit URL (every email the app sends lands there) |
 
 `make up` also starts the Celery `worker` and `beat` services (see their logs with
-`docker compose logs -f worker beat`) and the event `relay` and `consumers` services. Until
+`docker compose logs -f worker beat`), the event `relay` and `consumers` services and the
+`stream` service (uvicorn on 8001, SSE; Next rewrites `/api/orders/<id>/stream/` to it). Until
 `make migrate` has created the events tables they log one "waiting for the events tables" line
 and wait (also after `make reset` drops the schema); consumers never read a stream before that.
 
@@ -208,7 +215,7 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   Every endpoint requires a session by default; public views opt out.
 - Another user's order or cart line is a **404**, never a 403.
 - Endpoints: `/api/auth/{csrf,me,login,logout,register}/`, `/api/cart/`, `/api/cart/items/[{id}/]`,
-  `/api/checkout/`, `/api/orders/[{id}/[payment/|cancel/]]`, `/api/payments/webhook/` (no session:
+  `/api/checkout/`, `/api/orders/[{id}/[payment/[return/]|cancel/|stream/]]`, `/api/payments/webhook/` (no session:
   HMAC-signed), `/api/fake-provider/pay/<pi_id>/` (dev). Order URLs use the 32-hex external ID.
 
 ## Orders, stock and locking (important)
@@ -250,9 +257,15 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   per order, `needs_refund`); `orders.Payment` = the settled ledger (Olist's shape), written by
   `services.pay()` on success.
 - **Flow:** `POST /api/orders/{id}/payment/` creates or reuses the intent → the customer pays on
-  the provider's hosted page → back to `/orders/<id>?payment=processing` (the page polls) → the
+  the provider's hosted page → the provider redirects to `GET /api/orders/{id}/payment/return/`,
+  which marks the intent **`processing`** (+ `returned_at`) and goes to `/orders/<id>` → the
   provider delivers a signed webhook (Celery, with retries) → `handle_webhook` → `services.pay()`.
   `OrderPaid` / `PaymentFailed` / `ReservationExpired` still come from the outbox.
+- **`processing` is UI state only** (stored server-side so it survives reloads; the webhook still
+  decides). It hides Pay ("Payment in progress") for `PAYMENT_CONFIRMATION_TIMEOUT_SECONDS`
+  (180) after `returned_at`; then `confirmation_overdue` and Pay is offered again, reusing the
+  same intent (`OPEN_STATUSES` = requires_payment, processing), so it can't double-charge. No
+  URL parameter carries payment state.
 - **No HTTP inside transactions:** `create_payment` runs before the short transaction that saves
   the intent; its idempotency key (`order:<id>:intent`) dedupes concurrent clicks.
 - **Signature:** `Fake-Signature: t=<unix>,v1=<hex>`, `v1 = HMAC-SHA256(PAYMENT_WEBHOOK_SECRET,
@@ -271,6 +284,39 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   relative URL works for every browser): succeed / fail / succeed after a delay, plus "deliver
   each webhook twice" and "declined then succeeded, delivered out of order";
   `FAKE_PROVIDER_DUPLICATE_DELIVERY` makes "twice" the default. It refuses after the hold expires.
+
+## Live order tracking (SSE)
+
+- **Where:** `GET /api/orders/<id>/stream/` is served by the **ASGI `stream` service** (uvicorn,
+  `config/asgi.py`, same code and session auth as the API). An open stream is an idle coroutine,
+  not a WSGI worker. Under WSGI the view refuses (404): Django would buffer the whole async
+  stream. The rest of the API stays on WSGI (on ASGI, sync views would share one thread).
+- **Routing:** Next rewrites that path to `STREAM_URL` (before `/api/*`). The response sends
+  `Cache-Control: no-cache, no-transform` (Next's rewrite proxy gzips every response otherwise,
+  which buffers SSE completely; verified: without it 10 bytes arrived in 35 s) and
+  `X-Accel-Buffering: no`. Heartbeats every 15 s keep it under the proxy's 30 s idle timeout.
+- **Signal vs state:** the `order_live` consumer publishes `live:order:<id>` (Pub/Sub) for every
+  order event and `PaymentRefundDue`; the return view publishes too. The signal carries no
+  state: the stream re-reads the **snapshot from the DB** (the order detail serializer's
+  status, timeline, payment, can_pay/can_cancel, expiry). A dropped signal is fixed by the next
+  one, a reconnect, or the fallback poll.
+- **Versions:** `live_version` = hash of the snapshot fields (also on the order detail API).
+  Events go out as `id: <version>`; a reconnect's `Last-Event-ID` equal to the current version
+  gets no replay, and an unchanged version is never re-sent.
+- **Lifecycle:** owner only (404 otherwise, 401 anonymous); snapshot on connect, again on each
+  signal that changes the version; `: heartbeat` every 15 s; wakes at a payment's `overdue_at`
+  (no event for that); closes after 300 s (EventSource reconnects) or with `event: end` when
+  the order is final (delivered/canceled with no payment pending). `finally` unsubscribes on
+  every exit, including a client disconnect.
+- **Failure modes:** Redis down → the stream re-reads the DB every 5 s; `stream` restarts →
+  EventSource reconnects with Last-Event-ID; consumers down → signals catch up from the durable
+  stream; snapshot reads run on the thread pool (`thread_sensitive=False`) and close their DB
+  connection each time.
+- **Frontend:** `useOrderLive` (EventSource) calls `router.refresh()` when a snapshot's version
+  differs from the rendered `live_version` (one render path: the Server Component page); falls
+  back to a 15 s refresh only if EventSource gives up (non-200). `OrderLive` shows a badge only
+  after 5 s disconnected. No 2-second polling anywhere.
+- Not done (follow-up): live status badges on `/orders` (needs a per-user channel).
 
 ## Notifications (email)
 
@@ -382,8 +428,20 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
 - The webhook's HMAC is over the **raw body**. If production routes it through the Next `/api`
   rewrite, verify the bytes arrive unchanged (no re-encoding/decompression), or point the
   provider directly at Django.
+- SSE: route `/api/orders/*/stream/` to the ASGI `stream` service (uvicorn behind the proxy,
+  `--timeout-graceful-shutdown`). Any proxy in front (nginx etc.): `proxy_buffering off` (or
+  honour `X-Accel-Buffering: no`), `proxy_read_timeout` above the 15 s heartbeat, HTTP/1.1 to
+  the upstream, no gzip for `text/event-stream`. If it goes through the Next rewrite, keep
+  `Cache-Control: no-transform` and the heartbeat under Next's 30 s `proxyTimeout`.
+  `DJANGO_ALLOWED_HOSTS` must include the stream service's host.
 
 ## Known issues
+
+- Live updates use Redis Pub/Sub, which is fire-and-forget (a subscriber that's briefly away
+  misses messages); covered by state-based snapshots, reconnects and the fallback poll.
+- One Redis Pub/Sub connection per open stream. Fine for dev and small scale; at scale, use one
+  shared subscriber per `stream` process (pattern-subscribe `live:order:*`) fanning out to
+  per-connection `asyncio.Queue`s.
 
 - Redis persists streams with AOF `appendfsync everysec`: a hard crash can lose up to ~1 s of
   events the outbox already marked published. Streams are trimmed (`MAXLEN ~ 100000`); a
@@ -409,5 +467,5 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
 ## Out of scope (for now)
 
 - Kafka (Redis Streams covers the concepts), Kubernetes, microservices split, real payments
-  (Stripe test mode only, in a later step), SSE live tracking, an event replay command and an
-  event explorer (later steps).
+  (Stripe test mode only, in a later step), websockets, push notifications, an event replay
+  command, the event explorer and analytics (later steps).

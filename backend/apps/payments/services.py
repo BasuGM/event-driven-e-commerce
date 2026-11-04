@@ -15,6 +15,7 @@ from apps.core.errors import InvalidTransition, ReservationExpired
 from apps.events.outbox import record_event
 from apps.orders import services as order_services
 from apps.orders.events import order_payload
+from apps.orders.live import publish_order_signal
 from apps.orders.models import Order, Reservation
 
 from .gateway import PAYMENT_FAILED, PAYMENT_SUCCEEDED, WebhookEvent, get_gateway
@@ -34,7 +35,9 @@ def start_payment(order: Order, *, return_url: str) -> PaymentIntent:
     """Create (or reuse) the order's open payment intent. Raises InvalidTransition if the order
     can't be paid (not unpaid, or its stock hold expired)."""
     _check_payable(order)
-    open_intent = order.payment_intents.filter(status=PaymentIntent.Status.REQUIRES_PAYMENT).first()
+    # Retrying (e.g. after "processing" went overdue) reuses the same intent: the provider sees
+    # the same payment, so it can't be charged twice.
+    open_intent = order.payment_intents.filter(status__in=PaymentIntent.OPEN_STATUSES).first()
     if open_intent is not None:
         return open_intent
 
@@ -64,6 +67,23 @@ def start_payment(order: Order, *, return_url: str) -> PaymentIntent:
         except IntegrityError:
             intent = PaymentIntent.objects.get(provider_payment_id=created.id)
     return intent
+
+
+def mark_returned(order: Order) -> PaymentIntent | None:
+    """The customer is back from the provider's page: show "payment in progress" until the
+    webhook arrives (UI state only; the webhook still decides). Idempotent."""
+    with transaction.atomic():
+        order = order_services.lock_order(order.pk)  # Order -> PaymentIntent
+        intent = (
+            order.payment_intents.select_for_update()
+            .filter(status__in=PaymentIntent.OPEN_STATUSES).order_by("-created_at").first()
+        )
+        if intent is None or intent.status != PaymentIntent.Status.REQUIRES_PAYMENT:
+            return intent
+        intent.status, intent.returned_at = PaymentIntent.Status.PROCESSING, _now()
+        intent.save(update_fields=["status", "returned_at", "updated_at"])
+        transaction.on_commit(lambda: publish_order_signal(order.external_id), robust=True)
+        return intent
 
 
 def _check_payable(order: Order) -> None:

@@ -8,7 +8,13 @@ const nextConfig: NextConfig = {
   // session and CSRF cookies are first-party. (Server components call API_URL directly.)
   async rewrites() {
     const backend = process.env.API_URL ?? "http://localhost:8000"
-    return [{ source: "/api/:path*", destination: `${backend}/api/:path*/` }]
+    // Live order streams (SSE) go to the ASGI `stream` service; must come before /api/*.
+    // The response sets Cache-Control: no-transform so this proxy doesn't gzip/buffer it.
+    const stream = process.env.STREAM_URL ?? backend
+    return [
+      { source: "/api/orders/:id/stream", destination: `${stream}/api/orders/:id/stream/` },
+      { source: "/api/:path*", destination: `${backend}/api/:path*/` },
+    ]
   },
   // Django URLs end in "/". Without this Next would 308 /api/cart/ -> /api/cart, and Django's
   // APPEND_SLASH can't redirect a POST.

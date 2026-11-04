@@ -26,3 +26,9 @@ BACKEND_INTERNAL_URL = "http://backend.test"
 FRONTEND_PUBLIC_URL = "http://shop.test"
 # Never enqueue onto the dev stack's Redis broker (the dev worker would pick test tasks up)
 CELERY_BROKER_URL = "memory://"
+
+# Live order tracking: separate channels from the dev stack (Pub/Sub ignores the DB number)
+LIVE_CHANNEL_PREFIX = "test-live"
+ORDER_STREAM_HEARTBEAT_SECONDS = 0.2
+ORDER_STREAM_MAX_SECONDS = 3.0
+ORDER_STREAM_FALLBACK_POLL_SECONDS = 0.1

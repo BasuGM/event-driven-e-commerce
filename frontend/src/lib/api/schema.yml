@@ -1011,6 +1011,10 @@ components:
           - $ref: '#/components/schemas/OrderPayment'
           nullable: true
           readOnly: true
+        live_version:
+          type: string
+          description: Version of the live snapshot fields (see /stream/)
+          readOnly: true
       required:
       - approved_at
       - can_cancel
@@ -1020,6 +1024,7 @@ components:
       - item_count
       - items_total
       - lines
+      - live_version
       - payment
       - payments_enabled
       - purchased_at
@@ -1114,21 +1119,43 @@ components:
       type: object
       properties:
         status:
-          $ref: '#/components/schemas/OrderPaymentStatusEnum'
+          allOf:
+          - $ref: '#/components/schemas/OrderPaymentStatusEnum'
+          description: |-
+            processing = back from the provider's page, waiting for its webhook
+
+            * `requires_payment` - requires_payment
+            * `processing` - processing
+            * `succeeded` - succeeded
+            * `failed` - failed
         needs_refund:
           type: boolean
           description: 'Paid after the order was canceled: a refund is due'
+        confirmation_overdue:
+          type: boolean
+          readOnly: true
+          description: 'Processing for longer than PAYMENT_CONFIRMATION_TIMEOUT_SECONDS:
+            Pay is offered again'
+        overdue_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When a processing payment becomes overdue
       required:
+      - confirmation_overdue
       - needs_refund
+      - overdue_at
       - status
     OrderPaymentStatusEnum:
       enum:
       - requires_payment
+      - processing
       - succeeded
       - failed
       type: string
       description: |-
         * `requires_payment` - requires_payment
+        * `processing` - processing
         * `succeeded` - succeeded
         * `failed` - failed
     OrderStatusEnum:

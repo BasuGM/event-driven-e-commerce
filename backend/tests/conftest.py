@@ -166,7 +166,7 @@ def awaiting_payment(placed_order):
     from apps.payments.services import start_payment
 
     order, user, offers = placed_order
-    intent = start_payment(order, return_url=f"/orders/{order.external_id}?payment=processing")
+    intent = start_payment(order, return_url=f"/api/orders/{order.external_id}/payment/return/")
     return order, intent, FakeIntent.objects.get(pk=intent.provider_payment_id)
 
 

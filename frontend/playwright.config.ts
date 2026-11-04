@@ -9,6 +9,8 @@ export default defineConfig({
   timeout: 180_000,
   expect: { timeout: 30_000 },
   retries: 0,
+  // The specs share one customer account (and its cart): run them one at a time
+  workers: 1,
   reporter: [["list"]],
   outputDir: "/tmp/playwright-results",
   use: {

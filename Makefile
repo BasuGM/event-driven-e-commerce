@@ -72,7 +72,7 @@ backfill-sales: require-env
 	$(BACKEND) python manage.py backfill_sales_count
 
 events-logs: require-env
-	$(COMPOSE) logs -f relay consumers
+	$(COMPOSE) logs -f relay consumers stream
 
 mail: require-env
 	@echo "Mailpit (every email the app sends): http://localhost:$${MAILPIT_HOST_PORT:-8025}"

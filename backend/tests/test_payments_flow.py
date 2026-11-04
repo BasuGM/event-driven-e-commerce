@@ -38,7 +38,7 @@ def test_pay_creates_then_reuses_one_intent_for_the_order_total(unpaid):
     intent = PaymentIntent.objects.get()
     assert (intent.amount, intent.currency, intent.status) == (88, "BRL", "requires_payment")
     fake = FakeIntent.objects.get()
-    assert fake.return_url == f"/orders/{order_id}?payment=processing"
+    assert fake.return_url == f"/api/orders/{order_id}/payment/return/"
     assert fake.expires_at == Reservation.objects.order_by("expires_at").first().expires_at
 
 
@@ -56,7 +56,7 @@ def test_order_detail_shows_the_latest_payment(unpaid):
     assert client.get(f"/api/orders/{order_id}/").json()["payment"] is None
     client.post(f"/api/orders/{order_id}/payment/")
     assert client.get(f"/api/orders/{order_id}/").json()["payment"] == {
-        "status": "requires_payment", "needs_refund": False,
+        "status": "requires_payment", "needs_refund": False, "confirmation_overdue": False, "overdue_at": None,
     }
 
 
@@ -81,7 +81,7 @@ def test_hosted_page_records_the_choice_and_returns_to_the_store(awaiting_paymen
     with mock.patch("apps.fake_provider.provider.schedule") as schedule:
         response = api_client.post(f"/api/fake-provider/pay/{fake.pk}/", {"choice": "succeed", "twice": "on"})
 
-    assert response.status_code == 302 and response["Location"] == f"/orders/{order.external_id}?payment=processing"
+    assert response.status_code == 302 and response["Location"] == f"/api/orders/{order.external_id}/payment/return/"
     [event] = FakeEvent.objects.all()
     assert event.type == "payment_intent.succeeded"
     fake.refresh_from_db()
@@ -129,3 +129,71 @@ def test_delivery_is_retried_until_the_merchant_accepts(awaiting_payment, webhoo
     assert (event.delivery_attempts, event.last_status) == (3, 200)
     order.refresh_from_db()
     assert order.status == "approved"
+
+
+# --- back from the provider: "processing" until the webhook (survives a reload) ----------------
+
+
+def test_return_marks_processing_and_it_survives_a_reload(unpaid):
+    client, order_id = unpaid
+    client.post(f"/api/orders/{order_id}/payment/")
+
+    response = client.get(f"/api/orders/{order_id}/payment/return/")
+    assert response.status_code == 302 and response["Location"] == f"/orders/{order_id}"
+
+    for _ in range(2):  # a reload (or a later visit) still knows
+        detail = client.get(f"/api/orders/{order_id}/").json()
+        assert detail["payment"]["status"] == "processing"
+        assert detail["payment"]["confirmation_overdue"] is False and detail["can_pay"] is False
+    intent = PaymentIntent.objects.get()
+    returned_at = intent.returned_at
+    client.get(f"/api/orders/{order_id}/payment/return/")  # idempotent
+    intent.refresh_from_db()
+    assert intent.returned_at == returned_at
+
+
+def test_return_is_owner_only(unpaid, user_client):
+    client, order_id = unpaid
+    client.post(f"/api/orders/{order_id}/payment/")
+    assert user_client().get(f"/api/orders/{order_id}/payment/return/").status_code == 404
+    from rest_framework.test import APIClient
+
+    anonymous = APIClient().get(f"/api/orders/{order_id}/payment/return/")
+    assert anonymous.status_code == 302 and anonymous["Location"] == f"/login?next=/orders/{order_id}"
+    assert PaymentIntent.objects.get().status == "requires_payment"
+
+
+@pytest.mark.parametrize("choice, final", [(SUCCEED, "succeeded"), ("fail", "failed")])
+def test_the_webhook_clears_processing(awaiting_payment, run_deliveries, choice, final):
+    from apps.payments.services import mark_returned
+
+    order, intent, fake = awaiting_payment
+    mark_returned(order)
+    run_deliveries(choose(fake, choice))
+    intent.refresh_from_db()
+    assert intent.status == final
+
+
+def test_overdue_processing_offers_pay_again_with_the_same_intent(unpaid, settings, run_deliveries):
+    client, order_id = unpaid
+    first = client.post(f"/api/orders/{order_id}/payment/").json()
+    client.get(f"/api/orders/{order_id}/payment/return/")
+    assert client.get(f"/api/orders/{order_id}/").json()["can_pay"] is False
+
+    # No webhook within the window: Pay comes back (time moved past returned_at + timeout)
+    PaymentIntent.objects.update(returned_at=timezone.now() - timedelta(seconds=settings.PAYMENT_CONFIRMATION_TIMEOUT_SECONDS + 1))
+    detail = client.get(f"/api/orders/{order_id}/").json()
+    assert detail["can_pay"] is True and detail["payment"]["confirmation_overdue"] is True
+
+    retry = client.post(f"/api/orders/{order_id}/payment/").json()
+    # same intent, same provider payment: no double charge
+    assert retry["redirect_url"] == first["redirect_url"] and retry["status"] == "processing"
+    assert PaymentIntent.objects.count() == FakeIntent.objects.count() == 1
+
+    # The late webhook still settles the order, once
+    run_deliveries(choose(FakeIntent.objects.get(), SUCCEED, twice=True))
+    detail = client.get(f"/api/orders/{order_id}/").json()
+    assert detail["status"] == "approved" and detail["payment"]["status"] == "succeeded"
+    from apps.events.models import OutboxEvent
+
+    assert OutboxEvent.objects.filter(aggregate_id=order_id, event_type="OrderPaid").count() == 1

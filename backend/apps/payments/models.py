@@ -1,5 +1,9 @@
+from datetime import timedelta
+
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 from apps.orders.models import Order
 
@@ -15,8 +19,13 @@ class PaymentIntent(models.Model):
 
     class Status(models.TextChoices):
         REQUIRES_PAYMENT = "requires_payment"
+        # The customer came back from the provider's page; its webhook hasn't arrived yet.
+        # UI state only: the webhook still decides the outcome.
+        PROCESSING = "processing"
         SUCCEEDED = "succeeded"
         FAILED = "failed"
+
+    OPEN_STATUSES = (Status.REQUIRES_PAYMENT, Status.PROCESSING)
 
     order = models.ForeignKey(Order, on_delete=models.PROTECT, related_name="payment_intents")
     provider = models.CharField(max_length=32)
@@ -30,6 +39,7 @@ class PaymentIntent(models.Model):
     refund_reason = models.CharField(max_length=200, blank=True, default="")
     last_event_at = models.DateTimeField(null=True, blank=True)
     redirect_url = models.CharField(max_length=500, blank=True, default="")
+    returned_at = models.DateTimeField(null=True, blank=True, help_text="Customer back from the provider's page")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -37,12 +47,28 @@ class PaymentIntent(models.Model):
         constraints = [
             # Two "Pay" clicks reuse one open intent instead of creating a second
             models.UniqueConstraint(
-                fields=["order"], condition=Q(status="requires_payment"), name="uniq_open_intent_per_order"
+                fields=["order"], condition=Q(status__in=["requires_payment", "processing"]),
+                name="uniq_open_intent_per_order",
             )
         ]
 
     def __str__(self) -> str:
         return f"{self.provider_payment_id} ({self.status})"
+
+    @property
+    def overdue_at(self):
+        """When "processing" stops blocking Pay (the webhook may never come)."""
+        if self.status != self.Status.PROCESSING or self.returned_at is None:
+            return None
+        return self.returned_at + timedelta(seconds=settings.PAYMENT_CONFIRMATION_TIMEOUT_SECONDS)
+
+    def confirmation_overdue(self, now=None) -> bool:
+        overdue_at = self.overdue_at
+        return overdue_at is not None and (now or timezone.now()) >= overdue_at
+
+    def awaiting_webhook(self, now=None) -> bool:
+        """Processing and still within the window: Pay stays hidden."""
+        return self.status == self.Status.PROCESSING and not self.confirmation_overdue(now)
 
 
 class ProviderEvent(models.Model):

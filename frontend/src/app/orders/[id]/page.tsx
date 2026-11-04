@@ -5,6 +5,7 @@ import { Suspense } from "react"
 
 import { CartSummary } from "@/components/cart/cart-summary"
 import { OrderActions } from "@/components/orders/order-actions"
+import { OrderLive } from "@/components/orders/order-live"
 import { OrderStatusBadge } from "@/components/orders/order-status-badge"
 import { OrderTimeline } from "@/components/orders/order-timeline"
 import { PaymentConfirmation } from "@/components/orders/payment-confirmation"
@@ -26,24 +27,21 @@ import { formatBRL, formatDate } from "@/lib/format"
 
 export const metadata: Metadata = { title: "Order" }
 
-export default function OrderPage({ params, searchParams }: PageProps<"/orders/[id]">) {
+export default function OrderPage({ params }: PageProps<"/orders/[id]">) {
   return (
     <Suspense fallback={<Skeleton className="h-96 w-full rounded-xl" />}>
-      <Order params={params} searchParams={searchParams} />
+      <Order params={params} />
     </Suspense>
   )
 }
 
-async function Order({
-  params,
-  searchParams,
-}: {
-  params: PageProps<"/orders/[id]">["params"]
-  searchParams: PageProps<"/orders/[id]">["searchParams"]
-}) {
+/** Mirrors apps/orders/live.is_final: nothing more will happen, so no live connection. */
+function isFinal(order: { status: string; payment: { status: string } | null }) {
+  return ["delivered", "canceled"].includes(order.status) && order.payment?.status !== "processing"
+}
+
+async function Order({ params }: { params: PageProps<"/orders/[id]">["params"] }) {
   const { id } = await params
-  // Set by the payment provider's return_url: the customer just paid, the webhook may lag
-  const returnedFromPayment = (await searchParams).payment === "processing"
   const order = await orLogin(() => getOrder(id), `/orders/${id}`)
   if (!order) notFound()
 
@@ -75,7 +73,8 @@ async function Order({
         </div>
       </div>
 
-      {returnedFromPayment && <PaymentConfirmation orderId={order.id} status={order.status} />}
+      <OrderLive orderId={order.id} version={order.live_version} enabled={!isFinal(order)} />
+      <PaymentConfirmation payment={order.payment} />
 
       {order.payment?.needs_refund && (
         <Alert variant="destructive">
@@ -99,7 +98,7 @@ async function Order({
               canPay={order.can_pay}
               canCancel={order.can_cancel}
               paymentsEnabled={order.payments_enabled}
-              paymentInProgress={returnedFromPayment && order.status === "created"}
+              paymentInProgress={order.payment?.status === "processing" && !order.payment.confirmation_overdue}
             />
           </CardContent>
         </Card>

@@ -142,7 +142,17 @@ PAYMENT_WEBHOOK_SECRET = os.environ.get("PAYMENT_WEBHOOK_SECRET", "")
 PAYMENT_WEBHOOK_TOLERANCE_SECONDS = 300  # signed timestamp must be this fresh (limits replay)
 # Where the fake provider (Celery worker) delivers webhooks: the backend, inside compose
 BACKEND_INTERNAL_URL = os.environ.get("BACKEND_INTERNAL_URL", "http://backend:8000")
+# "processing" (back from the provider, webhook pending) hides Pay for this long, then Pay is
+# offered again (same intent, so no double charge)
+PAYMENT_CONFIRMATION_TIMEOUT_SECONDS = 180
 FAKE_PROVIDER_DUPLICATE_DELIVERY = os.environ.get("FAKE_PROVIDER_DUPLICATE_DELIVERY", "false").lower() == "true"
+
+# --- Live order tracking (SSE, served by the ASGI `stream` service) ---------------------------
+LIVE_CHANNEL_PREFIX = "live"  # Redis Pub/Sub channel <prefix>:order:<external_id>
+ORDER_STREAM_HEARTBEAT_SECONDS = 15.0  # must stay under the Next rewrite proxy's 30 s idle timeout
+ORDER_STREAM_MAX_SECONDS = 300.0  # then close; EventSource reconnects with Last-Event-ID
+ORDER_STREAM_RETRY_MS = 3000  # EventSource reconnect delay
+ORDER_STREAM_FALLBACK_POLL_SECONDS = 5.0  # re-read interval while Redis is unavailable
 
 # --- Email / notifications ----------------------------------------------------------------------
 # Django 6.1's MAILERS (replaces the deprecated EMAIL_* settings). Mailpit in dev (make mail);

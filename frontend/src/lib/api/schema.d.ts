@@ -564,6 +564,8 @@ export interface components {
             readonly can_cancel: boolean;
             readonly payments_enabled: boolean;
             readonly payment: components["schemas"]["OrderPayment"] | null;
+            /** @description Version of the live snapshot fields (see /stream/) */
+            readonly live_version: string;
         };
         OrderLine: {
             product_slug: string;
@@ -596,17 +598,33 @@ export interface components {
             reservation_expires_at: string | null;
         };
         OrderPayment: {
+            /**
+             * @description processing = back from the provider's page, waiting for its webhook
+             *
+             *     * `requires_payment` - requires_payment
+             *     * `processing` - processing
+             *     * `succeeded` - succeeded
+             *     * `failed` - failed
+             */
             status: components["schemas"]["OrderPaymentStatusEnum"];
             /** @description Paid after the order was canceled: a refund is due */
             needs_refund: boolean;
+            /** @description Processing for longer than PAYMENT_CONFIRMATION_TIMEOUT_SECONDS: Pay is offered again */
+            readonly confirmation_overdue: boolean;
+            /**
+             * Format: date-time
+             * @description When a processing payment becomes overdue
+             */
+            overdue_at: string | null;
         };
         /**
          * @description * `requires_payment` - requires_payment
+         *     * `processing` - processing
          *     * `succeeded` - succeeded
          *     * `failed` - failed
          * @enum {string}
          */
-        OrderPaymentStatusEnum: "requires_payment" | "succeeded" | "failed";
+        OrderPaymentStatusEnum: "requires_payment" | "processing" | "succeeded" | "failed";
         /**
          * @description * `created` - Created
          *     * `approved` - Approved

@@ -68,6 +68,12 @@ describe("OrderActions pay", () => {
     expect(post).not.toHaveBeenCalled()
   })
 
+  it("shows 'Payment in progress' even though Pay isn't allowed during the confirmation window", () => {
+    // the server says can_pay=false while processing; the button must still explain why
+    render(<OrderActions orderId="abc" total="88.00" canPay={false} canCancel paymentsEnabled paymentInProgress />)
+    expect(screen.getByRole("button", { name: "Payment in progress" })).toBeDisabled()
+  })
+
   it("hides Pay when payments are disabled", () => {
     render(<OrderActions orderId="abc" total="88.00" canPay canCancel paymentsEnabled={false} />)
     expect(screen.queryByRole("button", { name: /^Pay/ })).not.toBeInTheDocument()

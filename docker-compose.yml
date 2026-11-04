@@ -70,6 +70,23 @@ services:
       redis:
         condition: service_healthy
 
+  # Server-Sent Events (live order tracking) under ASGI. Same image and code as `backend`, but
+  # an open stream is an idle coroutine here instead of a WSGI worker. Next routes
+  # /api/orders/<id>/stream/ to it (STREAM_URL).
+  stream:
+    build: ./backend
+    env_file: .env
+    command: >-
+      uvicorn config.asgi:application --host 0.0.0.0 --port 8001
+      --reload --timeout-graceful-shutdown 5
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   # Outbox relay: publishes OutboxEvent rows to Redis Streams (safe to scale: SKIP LOCKED).
   relay:
     build: ./backend

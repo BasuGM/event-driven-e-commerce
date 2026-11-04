@@ -9,6 +9,8 @@ from rest_framework import serializers
 from apps.catalog.serializers import CategoryRefSerializer
 from apps.payments.gateway import payments_enabled
 
+from .live import snapshot_version
+
 from .models import Order, OrderStatusHistory
 
 BR_STATES = [
@@ -100,8 +102,18 @@ class OrderListSerializer(serializers.ModelSerializer):
 
 
 class OrderPaymentSerializer(serializers.Serializer):
-    status = serializers.ChoiceField(["requires_payment", "succeeded", "failed"])
+    status = serializers.ChoiceField(
+        ["requires_payment", "processing", "succeeded", "failed"],
+        help_text="processing = back from the provider's page, waiting for its webhook",
+    )
     needs_refund = serializers.BooleanField(help_text="Paid after the order was canceled: a refund is due")
+    confirmation_overdue = serializers.SerializerMethodField(
+        help_text="Processing for longer than PAYMENT_CONFIRMATION_TIMEOUT_SECONDS: Pay is offered again"
+    )
+    overdue_at = serializers.DateTimeField(allow_null=True, help_text="When a processing payment becomes overdue")
+
+    def get_confirmation_overdue(self, intent) -> bool:
+        return intent.confirmation_overdue()
 
 
 class OrderDetailSerializer(serializers.ModelSerializer):
@@ -125,13 +137,14 @@ class OrderDetailSerializer(serializers.ModelSerializer):
     can_cancel = serializers.SerializerMethodField()
     payments_enabled = serializers.SerializerMethodField()
     payment = serializers.SerializerMethodField()
+    live_version = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
         fields = [
             "id", "status", "purchased_at", "approved_at", "lines", "item_count", "items_total",
             "freight_total", "total", "shipping", "status_history", "reservation_expires_at",
-            "can_pay", "can_cancel", "payments_enabled", "payment",
+            "can_pay", "can_cancel", "payments_enabled", "payment", "live_version",
         ]
         read_only_fields = fields
 
@@ -162,8 +175,18 @@ class OrderDetailSerializer(serializers.ModelSerializer):
         expires = order.reservation_expires_at
         return expires is not None and expires <= timezone.now()
 
+    def _latest_intent(self, order):
+        # Prefetched (newest first) by selectors.order_detail
+        intents = list(order.payment_intents.all())
+        return intents[0] if intents else None
+
     def get_can_pay(self, order) -> bool:
-        return order.status == Order.Status.CREATED and not self._expired(order)
+        if order.status != Order.Status.CREATED or self._expired(order):
+            return False
+        # While the provider's confirmation is pending, paying again would only confuse things;
+        # once it's overdue, Pay comes back (and reuses the same intent: no double charge).
+        intent = self._latest_intent(order)
+        return intent is None or not intent.awaiting_webhook()
 
     def get_can_cancel(self, order) -> bool:
         return order.status == Order.Status.CREATED
@@ -173,6 +196,14 @@ class OrderDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OrderPaymentSerializer(allow_null=True))
     def get_payment(self, order):
-        # Latest provider payment; prefetched (newest first) by selectors.order_detail
-        intents = list(order.payment_intents.all())
-        return OrderPaymentSerializer(intents[0]).data if intents else None
+        intent = self._latest_intent(order)
+        return OrderPaymentSerializer(intent).data if intent else None
+
+    @extend_schema_field(serializers.CharField(help_text="Version of the live snapshot fields (see /stream/)"))
+    def get_live_version(self, order) -> str:
+        return ""  # filled in by to_representation, which has every other field serialized
+
+    def to_representation(self, order):
+        data = super().to_representation(order)
+        data["live_version"] = snapshot_version(data)
+        return data
