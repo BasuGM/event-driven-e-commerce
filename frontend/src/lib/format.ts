@@ -20,3 +20,19 @@ export function formatBRL(value: string | number): string {
 export function formatDate(value: string): string {
   return dateFormatter.format(new Date(value))
 }
+
+const dateTimeFormatter = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  timeZone: "UTC",
+  timeZoneName: "short",
+})
+
+/** Timestamps in staff tools: exact to the second, in UTC (what the logs and Redis use). */
+export function formatDateTime(value: string): string {
+  return dateTimeFormatter.format(new Date(value))
+}

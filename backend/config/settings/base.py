@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "apps.payments",
     "apps.fake_provider",
     "apps.notifications",
+    "apps.staff",
 ]
 
 MIDDLEWARE = [
@@ -130,7 +131,13 @@ EVENTS_STREAM_MAXLEN = 100_000  # approximate trim per stream
 EVENTS_BLOCK_MS = 2_000  # XREADGROUP block; also bounds how long a consumer takes to stop
 EVENTS_CLAIM_IDLE_MS = 60_000  # a pending entry this idle is reclaimed (and retried)
 EVENTS_MAX_DELIVERIES = 5  # then it goes to the dead-letter stream
-EVENTS_RETENTION_DAYS = 7  # published outbox rows / ProcessedEvent rows
+# Consumer names are hostname-pid: on start, names idle this long with nothing pending are
+# removed from the group; the staff health page counts a consumer as active below the second.
+EVENTS_CONSUMER_PRUNE_IDLE_MS = 600_000
+EVENTS_CONSUMER_ACTIVE_IDLE_MS = 60_000
+EVENTS_RETENTION_DAYS = 7  # published outbox rows (a delivery buffer)
+# EventLog + ProcessedEvent: the staff explorer's history ("which consumers processed it")
+EVENT_LOG_RETENTION_DAYS = 90
 RELAY_BATCH_SIZE = 100
 # Consumers call the frontend to revalidate Next.js cache tags
 REVALIDATE_SECRET = os.environ.get("REVALIDATE_SECRET", "")

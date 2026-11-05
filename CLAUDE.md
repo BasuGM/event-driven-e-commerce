@@ -42,15 +42,16 @@ backend/
                     only code that changes stock), events.py (order event names + payloads),
                     live.py (snapshot, version, Pub/Sub signal), stream.py (SSE view),
                     selectors.py, tasks.py (Celery)
-  apps/events/      OutboxEvent, ProcessedEvent; outbox.py (record_event), relay.py,
-                    consumer.py (framework), consumers/ (product_stats, cache_invalidation,
-                    notifications, order_live),
+  apps/events/      OutboxEvent, ProcessedEvent, EventLog, DeadLetterRetry; outbox.py
+                    (record_event), relay.py, consumer.py (framework), consumers/
+                    (product_stats, cache_invalidation, notifications, order_live, event_log),
                     revalidate.py (calls Next), run_relay / run_consumers commands
   apps/payments/    PaymentIntent, ProviderEvent; gateway.py (interface), signature.py (HMAC),
                     services.py (start_payment, handle_webhook), webhook view
   apps/fake_provider/  FakeIntent, FakeEvent, FakeGateway, hosted page, Celery delivery
                     (dev/test only; URLs mounted only with ALLOW_FAKE_PAYMENTS)
   apps/notifications/  Notification; rendering.py + templates, sender.py, tasks.py
+  apps/staff/       staff-only API: event log, order timelines, consumer health, DLQ retry
   tests/            pytest suite; tests/fixtures/olist/ = tiny CSVs incl. messy rows
 frontend/src/
   app/              App Router pages (+ loading.tsx / error.tsx per data view);
@@ -63,6 +64,8 @@ frontend/src/
                     client for Client Components, sends X-CSRFToken)
   lib/cache-tags.ts  cache tag names (productTag, ALL_PRODUCTS), shared with the backend
   lib/use-order-live.ts  EventSource hook for the order page (SSE; slow-poll fallback)
+  lib/staff-params.ts  staff event filters <-> URL search params
+  app/staff/        staff pages (events, health, orders/[id]); components/staff/
   lib/checkout-attempt.ts  idempotency keys for checkout (reuse on retry)
   lib/shop-params.ts  URL search params <-> shop filters (the only translation layer)
 frontend/e2e/       Playwright smoke tests (run.sh is the e2e container entry point)
@@ -371,7 +374,11 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   with it.
 - **Dashboard stats stay on-request** (four `COUNT(*)`s): products/sellers come from the
   importer (no events), so event-maintained counters would need a backfill and could drift.
-- Beat purges published outbox rows and ProcessedEvent rows after `EVENTS_RETENTION_DAYS`.
+- `event_log` consumer (every stream, `event_types = ALL`) writes each event once to `EventLog`
+  (unique `event_id`): the explorer's history. Beat purges published outbox rows after
+  `EVENTS_RETENTION_DAYS` (7: a delivery buffer) and `EventLog` + `ProcessedEvent` after
+  `EVENT_LOG_RETENTION_DAYS` (90: the explorer shows which consumers processed each event, so
+  both are kept as long).
 - `make reset` also deletes the event streams (`manage.py clear_event_streams`: only
   `<EVENTS_STREAM_PREFIX>:*` stream keys, with their groups and the DLQ; Celery's keys in the
   same Redis DB are untouched). Otherwise consumers would replay old events against fresh data.
@@ -379,6 +386,29 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
 - `/api/health` reports the outbox backlog (unpublished count, oldest age); informational only.
 - Tests use the real compose Redis (DB 15, `test-events:` prefix, keys cleared per test) and
   Celery's in-memory broker (never the dev Redis broker).
+
+## Staff tools (event explorer)
+
+- Staff only: `/api/staff/*` uses `IsStaffOr404` (anonymous and non-staff get **404**, not
+  401/403), and each `/staff/*` page renders its staff header only after its data check passed
+  (no shared layout that would flash staff chrome). The "Staff" header link shows for
+  `is_staff` users.
+- Pages: `/staff/events` (filters: type, aggregate id, date range; URL = state via
+  `lib/staff-params.ts`; payload as JSON), `/staff/orders/<id>` (the order's events in order,
+  each with the consumers that should process it and when they did, from ProcessedEvent),
+  `/staff/health` (per group pending/lag via XINFO GROUPS, active consumers, outbox backlog, last
+  100 dead letters). Each page is a static shell with the data (and staff header) under
+  `<Suspense>`; blank filter fields redirect to a clean URL.
+- Consumer names are `hostname-pid`, so restarts leave dead names in groups: on start a consumer
+  removes names with **0 pending** idle > `EVENTS_CONSUMER_PRUNE_IDLE_MS` (10 min; never ones
+  with pending entries, which XAUTOCLAIM recovers). Health counts consumers active within
+  `EVENTS_CONSUMER_ACTIVE_IDLE_MS` (1 min) and shows the rest as inactive.
+- **Dead-letter retry** (`POST /api/staff/dead-letters/<entry_id>/retry/`, CSRF): XADDs the
+  entry's original fields (same event id) back onto its stream, once per DLQ entry
+  (`DeadLetterRetry` unique, records who). Every group sees the new entry; groups that already
+  processed the event find their ProcessedEvent row and just ack; the consumer that
+  dead-lettered it has no row (each attempt rolled back), so it applies it now. The DLQ entry
+  stays for the record, marked retried.
 
 ## UI rules
 

@@ -314,6 +314,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/staff/dead-letters/{entry_id}/retry/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Re-deliver a dead-lettered event to its stream (staff; idempotent) */
+        post: operations["staff_dead_letters_retry_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/staff/events/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Event log (staff): newest first */
+        get: operations["staff_events_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/staff/events/types/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Event types seen in the log (staff) */
+        get: operations["staff_events_types_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/staff/health/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Consumer groups, outbox backlog and dead letters (staff) */
+        get: operations["staff_health_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/staff/orders/{order_id}/events/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every event for one order, oldest first, with consumer status (staff) */
+        get: operations["staff_orders_events_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stats/": {
         parameters: {
             query?: never;
@@ -450,8 +535,29 @@ export interface components {
          * @enum {string}
          */
         CodeEnum: "out_of_stock" | "reservation_expired" | "invalid_transition" | "idempotency_conflict" | "empty_cart";
+        ConsumerStatus: {
+            name: string;
+            /**
+             * Format: date-time
+             * @description null = not processed (yet)
+             */
+            processed_at: string | null;
+        };
         Csrf: {
             readonly csrf_token: string;
+        };
+        DeadLetterRetry: {
+            readonly dlq_entry_id: string;
+            readonly event_id: string;
+            readonly consumer: string;
+            readonly stream: string;
+            readonly new_entry_id: string;
+            /** Format: email */
+            readonly retried_by: string | null;
+            /** Format: date-time */
+            readonly retried_at: string;
+            /** @description false = this entry had already been retried (no new delivery) */
+            created: boolean;
         };
         Dimensions: {
             weight_g: number | null;
@@ -471,6 +577,23 @@ export interface components {
             product: string;
             requested: number;
             available: number;
+        };
+        EventLog: {
+            /** Format: uuid */
+            readonly event_id: string;
+            readonly type: string;
+            readonly aggregate_type: string;
+            readonly aggregate_id: string;
+            readonly stream: string;
+            readonly schema_version: number;
+            readonly payload: unknown;
+            /**
+             * Format: date-time
+             * @description When the event was recorded (outbox)
+             */
+            readonly occurred_at: string;
+            /** Format: date-time */
+            readonly received_at: string;
         };
         /**
          * @description * `appliances` - appliances
@@ -643,6 +766,21 @@ export interface components {
             /** @description Age of the oldest unpublished event (null when none) */
             oldest_unpublished_age_seconds: number | null;
         };
+        PaginatedEventLogList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["EventLog"][];
+        };
         PaginatedOrderListList: {
             /** @example 123 */
             count: number;
@@ -763,6 +901,42 @@ export interface components {
             /** @description CEP, e.g. 01310-100 */
             zip_code: string;
         };
+        StaffDeadLetter: {
+            entry_id: string;
+            event_id: string | null;
+            type: string | null;
+            aggregate_id: string | null;
+            consumer: string | null;
+            stream: string | null;
+            deliveries: number | null;
+            error: string | null;
+            /** Format: date-time */
+            retried_at: string | null;
+        };
+        StaffGroupHealth: {
+            stream: string;
+            group: string;
+            /** @description false = the consumer hasn't created its group yet */
+            exists: boolean;
+            /** @description Active consumers (read attempt within the last minute) */
+            consumers: number;
+            /** @description Names left from restarts (pruned when idle with nothing pending) */
+            inactive_consumers: number;
+            /** @description Delivered, not acked yet (XPENDING) */
+            pending: number;
+            /** @description Entries not delivered to the group yet */
+            lag: number | null;
+            last_delivered_id: string | null;
+        };
+        StaffHealth: {
+            groups: components["schemas"]["StaffGroupHealth"][];
+            outbox: components["schemas"]["StaffOutboxBacklog"];
+            dead_letters: components["schemas"]["StaffDeadLetter"][];
+        };
+        StaffOutboxBacklog: {
+            unpublished: number;
+            oldest_unpublished_age_seconds: number | null;
+        };
         /**
          * @description * `AC` - AC
          *     * `AL` - AL
@@ -806,6 +980,24 @@ export interface components {
             readonly reason: string;
             /** Format: date-time */
             readonly created_at: string;
+        };
+        TimelineEvent: {
+            /** Format: uuid */
+            readonly event_id: string;
+            readonly type: string;
+            readonly aggregate_type: string;
+            readonly aggregate_id: string;
+            readonly stream: string;
+            readonly schema_version: number;
+            readonly payload: unknown;
+            /**
+             * Format: date-time
+             * @description When the event was recorded (outbox)
+             */
+            readonly occurred_at: string;
+            /** Format: date-time */
+            readonly received_at: string;
+            consumers: components["schemas"]["ConsumerStatus"][];
         };
         User: {
             readonly id: number;
@@ -1312,6 +1504,116 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaginatedProductReviewList"];
+                };
+            };
+        };
+    };
+    staff_dead_letters_retry_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeadLetterRetry"];
+                };
+            };
+        };
+    };
+    staff_events_list: {
+        parameters: {
+            query?: {
+                aggregate_id?: string;
+                /** @description YYYY-MM-DD */
+                date_from?: string;
+                /** @description YYYY-MM-DD */
+                date_to?: string;
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+                type?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedEventLogList"];
+                };
+            };
+        };
+    };
+    staff_events_types_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+        };
+    };
+    staff_health_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffHealth"];
+                };
+            };
+        };
+    };
+    staff_orders_events_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimelineEvent"][];
                 };
             };
         };

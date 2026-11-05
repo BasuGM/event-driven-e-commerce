@@ -60,6 +60,10 @@ which shows "Payment in progress" and updates live (Server-Sent Events) when the
 arrives via the Celery `worker`, without polling or reloading. If you don't pay, the
 `beat` + `worker` services cancel the order and return the stock within a minute of expiry.
 
+Staff tools: log in as `staff@example.com` and use the **Staff** link: the event log (every
+domain event, filterable), per-order event timelines with consumer status, and event health
+(consumer lag, outbox backlog, dead letters with a Retry button).
+
 Order emails (received, paid, failed, canceled, expired, refund due) are caught by Mailpit:
 open the URL from `make mail` (default http://localhost:8025).
 

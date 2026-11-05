@@ -35,6 +35,19 @@ from .streams import Event, dlq_stream, redis_client, stream_name
 logger = logging.getLogger(__name__)
 
 READ_COUNT = 10
+
+
+class _AllTypes(frozenset):
+    """``event_types = ALL``: a consumer that handles every event type (e.g. the event log)."""
+
+    def __contains__(self, item) -> bool:
+        return True
+
+    def __repr__(self) -> str:
+        return "ALL"
+
+
+ALL = _AllTypes()
 CLAIM_INTERVAL = 30.0  # seconds between XAUTOCLAIM sweeps
 
 
@@ -67,6 +80,25 @@ class Consumer:
             except redis.ResponseError as exc:
                 if "BUSYGROUP" not in str(exc):
                     raise
+            self.prune_dead_consumers(key)
+
+    def prune_dead_consumers(self, key: str) -> list[str]:
+        """Consumer names are hostname-pid, so every restart leaves the old name in the group.
+        Remove those that own no pending entries and have been idle (no read attempt) for longer
+        than EVENTS_CONSUMER_PRUNE_IDLE_MS. Never one with pending entries: DELCONSUMER would
+        drop them, and XAUTOCLAIM is what recovers a crashed consumer's work."""
+        removed = []
+        for consumer in self.client.xinfo_consumers(key, self.name):
+            if (
+                consumer["name"] != self.me
+                and consumer["pending"] == 0
+                and consumer["idle"] > settings.EVENTS_CONSUMER_PRUNE_IDLE_MS
+            ):
+                self.client.xgroup_delconsumer(key, self.name, consumer["name"])
+                removed.append(consumer["name"])
+        if removed:
+            logger.info("Consumer %s: removed %d dead consumer name(s) from %s", self.name, len(removed), key)
+        return removed
 
     # --- one iteration ---------------------------------------------------------------------
 

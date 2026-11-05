@@ -4,7 +4,17 @@ import createClient from "openapi-fetch"
 
 import { loginHref } from "@/lib/urls"
 
-import { withTimeout, type Cart, type Me, type OrderDetail, type OrderPage, type Shipping } from "./client"
+import {
+  withTimeout,
+  type Cart,
+  type Me,
+  type OrderDetail,
+  type OrderPage,
+  type Shipping,
+  type StaffEventPage,
+  type StaffHealth,
+  type StaffTimelineEvent,
+} from "./client"
 import type { paths } from "./schema"
 
 /** Thrown when the backend says we're not logged in (401). Pages turn it into a redirect. */
@@ -78,4 +88,52 @@ export async function orLogin<T>(load: () => Promise<T>, path: string): Promise<
     if (error instanceof NotAuthenticatedError) redirect(loginHref(path))
     throw error
   }
+}
+
+// --- staff (event explorer) --------------------------------------------------------------------
+// The API answers 404 to anyone who isn't staff, so null here means "not for you": the page
+// calls notFound() and the staff tools stay invisible.
+
+export type StaffEventFilters = { type?: string; aggregate_id?: string; date_from?: string; date_to?: string; page?: number }
+
+export async function getStaffEvents(filters: StaffEventFilters): Promise<StaffEventPage | null> {
+  const api = await asVisitor()
+  const { data, response } = await withTimeout("staff events", (signal) =>
+    api.GET("/api/staff/events/", { params: { query: filters }, signal }),
+  )
+  if (data) return data
+  if (response.status === 404 && filters.page && filters.page > 1) {
+    return { count: 0, next: null, previous: null, results: [] } // a page past the end
+  }
+  if (response.status === 404) return null
+  if (response.status === 400) return { count: 0, next: null, previous: null, results: [] }
+  throw new Error(`Failed to load events (${response.status})`)
+}
+
+export async function getStaffEventTypes(): Promise<string[] | null> {
+  const api = await asVisitor()
+  const { data, response } = await withTimeout("staff event types", (signal) =>
+    api.GET("/api/staff/events/types/", { signal }),
+  )
+  if (data) return data
+  if (response.status === 404) return null
+  throw new Error(`Failed to load event types (${response.status})`)
+}
+
+export async function getStaffOrderTimeline(orderId: string): Promise<StaffTimelineEvent[] | null> {
+  const api = await asVisitor()
+  const { data, response } = await withTimeout(`staff timeline ${orderId}`, (signal) =>
+    api.GET("/api/staff/orders/{order_id}/events/", { params: { path: { order_id: orderId } }, signal }),
+  )
+  if (data) return data
+  if (response.status === 404) return null
+  throw new Error(`Failed to load the order's events (${response.status})`)
+}
+
+export async function getStaffHealth(): Promise<StaffHealth | null> {
+  const api = await asVisitor()
+  const { data, response } = await withTimeout("staff health", (signal) => api.GET("/api/staff/health/", { signal }))
+  if (data) return data
+  if (response.status === 404) return null
+  throw new Error(`Failed to load event health (${response.status})`)
 }

@@ -1,4 +1,4 @@
-import { ShoppingBag } from "lucide-react"
+import { ShieldCheck, ShoppingBag } from "lucide-react"
 import Link from "next/link"
 import { connection } from "next/server"
 
@@ -30,6 +30,13 @@ export async function HeaderAccount() {
   const count = me.cart_count
   return (
     <>
+      {me.user.is_staff && (
+        <Button asChild variant="ghost" size="sm">
+          <Link href="/staff/events">
+            <ShieldCheck /> Staff
+          </Link>
+        </Button>
+      )}
       <Button asChild variant="ghost" size="icon" className="relative">
         <Link href="/cart" aria-label={count ? `Cart, ${count} item${count === 1 ? "" : "s"}` : "Cart"}>
           <ShoppingBag className="size-4" />

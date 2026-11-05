@@ -512,6 +512,128 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedProductReviewList'
           description: ''
+  /api/staff/dead-letters/{entry_id}/retry/:
+    post:
+      operationId: staff_dead_letters_retry_create
+      summary: Re-deliver a dead-lettered event to its stream (staff; idempotent)
+      parameters:
+      - in: path
+        name: entry_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - staff
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeadLetterRetry'
+          description: ''
+  /api/staff/events/:
+    get:
+      operationId: staff_events_list
+      summary: 'Event log (staff): newest first'
+      parameters:
+      - in: query
+        name: aggregate_id
+        schema:
+          type: string
+      - in: query
+        name: date_from
+        schema:
+          type: string
+        description: YYYY-MM-DD
+      - in: query
+        name: date_to
+        schema:
+          type: string
+        description: YYYY-MM-DD
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: type
+        schema:
+          type: string
+      tags:
+      - staff
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEventLogList'
+          description: ''
+  /api/staff/events/types/:
+    get:
+      operationId: staff_events_types_retrieve
+      summary: Event types seen in the log (staff)
+      tags:
+      - staff
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+          description: ''
+  /api/staff/health/:
+    get:
+      operationId: staff_health_retrieve
+      summary: Consumer groups, outbox backlog and dead letters (staff)
+      tags:
+      - staff
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffHealth'
+          description: ''
+  /api/staff/orders/{order_id}/events/:
+    get:
+      operationId: staff_orders_events_list
+      summary: Every event for one order, oldest first, with consumer status (staff)
+      parameters:
+      - in: path
+        name: order_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - staff
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TimelineEvent'
+          description: ''
   /api/stats/:
     get:
       operationId: stats_retrieve
@@ -753,6 +875,19 @@ components:
         * `invalid_transition` - invalid_transition
         * `idempotency_conflict` - idempotency_conflict
         * `empty_cart` - empty_cart
+    ConsumerStatus:
+      type: object
+      properties:
+        name:
+          type: string
+        processed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: null = not processed (yet)
+      required:
+      - name
+      - processed_at
     Csrf:
       type: object
       properties:
@@ -761,6 +896,45 @@ components:
           readOnly: true
       required:
       - csrf_token
+    DeadLetterRetry:
+      type: object
+      properties:
+        dlq_entry_id:
+          type: string
+          readOnly: true
+        event_id:
+          type: string
+          readOnly: true
+        consumer:
+          type: string
+          readOnly: true
+        stream:
+          type: string
+          readOnly: true
+        new_entry_id:
+          type: string
+          readOnly: true
+        retried_by:
+          type: string
+          format: email
+          readOnly: true
+          nullable: true
+        retried_at:
+          type: string
+          format: date-time
+          readOnly: true
+        created:
+          type: boolean
+          description: false = this entry had already been retried (no new delivery)
+      required:
+      - consumer
+      - created
+      - dlq_entry_id
+      - event_id
+      - new_entry_id
+      - retried_at
+      - retried_by
+      - stream
     Dimensions:
       type: object
       properties:
@@ -814,6 +988,49 @@ components:
       - offer_id
       - product
       - requested
+    EventLog:
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          readOnly: true
+        type:
+          type: string
+          readOnly: true
+        aggregate_type:
+          type: string
+          readOnly: true
+        aggregate_id:
+          type: string
+          readOnly: true
+        stream:
+          type: string
+          readOnly: true
+        schema_version:
+          type: integer
+          readOnly: true
+        payload:
+          readOnly: true
+        occurred_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When the event was recorded (outbox)
+        received_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - aggregate_id
+      - aggregate_type
+      - event_id
+      - occurred_at
+      - payload
+      - received_at
+      - schema_version
+      - stream
+      - type
     GroupEnum:
       enum:
       - appliances
@@ -1191,6 +1408,29 @@ components:
       required:
       - oldest_unpublished_age_seconds
       - unpublished
+    PaginatedEventLogList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventLog'
     PaginatedOrderListList:
       type: object
       required:
@@ -1487,6 +1727,109 @@ components:
       - state
       - street
       - zip_code
+    StaffDeadLetter:
+      type: object
+      properties:
+        entry_id:
+          type: string
+        event_id:
+          type: string
+          nullable: true
+        type:
+          type: string
+          nullable: true
+        aggregate_id:
+          type: string
+          nullable: true
+        consumer:
+          type: string
+          nullable: true
+        stream:
+          type: string
+          nullable: true
+        deliveries:
+          type: integer
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        retried_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - aggregate_id
+      - consumer
+      - deliveries
+      - entry_id
+      - error
+      - event_id
+      - retried_at
+      - stream
+      - type
+    StaffGroupHealth:
+      type: object
+      properties:
+        stream:
+          type: string
+        group:
+          type: string
+        exists:
+          type: boolean
+          description: false = the consumer hasn't created its group yet
+        consumers:
+          type: integer
+          description: Active consumers (read attempt within the last minute)
+        inactive_consumers:
+          type: integer
+          description: Names left from restarts (pruned when idle with nothing pending)
+        pending:
+          type: integer
+          description: Delivered, not acked yet (XPENDING)
+        lag:
+          type: integer
+          nullable: true
+          description: Entries not delivered to the group yet
+        last_delivered_id:
+          type: string
+          nullable: true
+      required:
+      - consumers
+      - exists
+      - group
+      - inactive_consumers
+      - lag
+      - last_delivered_id
+      - pending
+      - stream
+    StaffHealth:
+      type: object
+      properties:
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/StaffGroupHealth'
+        outbox:
+          $ref: '#/components/schemas/StaffOutboxBacklog'
+        dead_letters:
+          type: array
+          items:
+            $ref: '#/components/schemas/StaffDeadLetter'
+      required:
+      - dead_letters
+      - groups
+      - outbox
+    StaffOutboxBacklog:
+      type: object
+      properties:
+        unpublished:
+          type: integer
+        oldest_unpublished_age_seconds:
+          type: integer
+          nullable: true
+      required:
+      - oldest_unpublished_age_seconds
+      - unpublished
     StateEnum:
       enum:
       - AC
@@ -1584,6 +1927,54 @@ components:
       - from_status
       - reason
       - to_status
+    TimelineEvent:
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          readOnly: true
+        type:
+          type: string
+          readOnly: true
+        aggregate_type:
+          type: string
+          readOnly: true
+        aggregate_id:
+          type: string
+          readOnly: true
+        stream:
+          type: string
+          readOnly: true
+        schema_version:
+          type: integer
+          readOnly: true
+        payload:
+          readOnly: true
+        occurred_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When the event was recorded (outbox)
+        received_at:
+          type: string
+          format: date-time
+          readOnly: true
+        consumers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsumerStatus'
+      required:
+      - aggregate_id
+      - aggregate_type
+      - consumers
+      - event_id
+      - occurred_at
+      - payload
+      - received_at
+      - schema_version
+      - stream
+      - type
     User:
       type: object
       properties:
