@@ -121,9 +121,10 @@ def test_order_timeline_lists_events_in_order_with_consumer_status(staff_client,
 
     assert [e["type"] for e in timeline] == ["OrderPlaced", "OrderCanceled"]
     consumers = {c["name"]: c["processed_at"] for c in timeline[0]["consumers"]}
-    assert set(consumers) == {"event_log", "notifications", "order_live", "product_stats"}
+    assert set(consumers) == {"analytics", "event_log", "notifications", "order_live", "product_stats"}
     assert consumers["event_log"] and consumers["product_stats"]  # processed (timestamps)
     assert consumers["notifications"] is None and consumers["order_live"] is None  # pending
+    assert consumers["analytics"] is None
 
 
 # --- health ------------------------------------------------------------------------------------

@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     "apps.fake_provider",
     "apps.notifications",
     "apps.staff",
+    "apps.analytics",
 ]
 
 MIDDLEWARE = [
@@ -160,6 +161,10 @@ ORDER_STREAM_HEARTBEAT_SECONDS = 15.0  # must stay under the Next rewrite proxy'
 ORDER_STREAM_MAX_SECONDS = 300.0  # then close; EventSource reconnects with Last-Event-ID
 ORDER_STREAM_RETRY_MS = 3000  # EventSource reconnect delay
 ORDER_STREAM_FALLBACK_POLL_SECONDS = 5.0  # re-read interval while Redis is unavailable
+
+# --- Analytics --------------------------------------------------------------------------------
+# Projection "days" are purchase days in Brazilian local time (Olist's timestamps are local)
+ANALYTICS_TIMEZONE = "America/Sao_Paulo"
 
 # --- Email / notifications ----------------------------------------------------------------------
 # Django 6.1's MAILERS (replaces the deprecated EMAIL_* settings). Mailpit in dev (make mail);

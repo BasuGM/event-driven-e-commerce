@@ -44,7 +44,8 @@ backend/
                     selectors.py, tasks.py (Celery)
   apps/events/      OutboxEvent, ProcessedEvent, EventLog, DeadLetterRetry; outbox.py
                     (record_event), relay.py, consumer.py (framework), consumers/
-                    (product_stats, cache_invalidation, notifications, order_live, event_log),
+                    (product_stats, cache_invalidation, notifications, order_live, event_log,
+                    analytics),
                     revalidate.py (calls Next), run_relay / run_consumers commands
   apps/payments/    PaymentIntent, ProviderEvent; gateway.py (interface), signature.py (HMAC),
                     services.py (start_payment, handle_webhook), webhook view
@@ -52,6 +53,8 @@ backend/
                     (dev/test only; URLs mounted only with ALLOW_FAKE_PAYMENTS)
   apps/notifications/  Notification; rendering.py + templates, sender.py, tasks.py
   apps/staff/       staff-only API: event log, order timelines, consumer health, DLQ retry
+  apps/analytics/   projection tables, projections.py (set-based recompute), queries.py
+                    (dashboard), backfill_analytics command
   tests/            pytest suite; tests/fixtures/olist/ = tiny CSVs incl. messy rows
 frontend/src/
   app/              App Router pages (+ loading.tsx / error.tsx per data view);
@@ -65,7 +68,8 @@ frontend/src/
   lib/cache-tags.ts  cache tag names (productTag, ALL_PRODUCTS), shared with the backend
   lib/use-order-live.ts  EventSource hook for the order page (SSE; slow-poll fallback)
   lib/staff-params.ts  staff event filters <-> URL search params
-  app/staff/        staff pages (events, health, orders/[id]); components/staff/
+  app/staff/        staff pages (events, health, orders/[id], analytics); components/staff/,
+                    components/analytics/ (charts, filters); lib/analytics-params.ts
   lib/checkout-attempt.ts  idempotency keys for checkout (reuse on retry)
   lib/shop-params.ts  URL search params <-> shop filters (the only translation layer)
 frontend/e2e/       Playwright smoke tests (run.sh is the e2e container entry point)
@@ -103,6 +107,7 @@ with other local services; containers always talk to each other on the default p
 | `make backfill-sales` | Recount `sales_count` without canceled/unavailable orders (one-off, re-runnable) |
 | `make events-logs` | Follow the relay, consumers and stream (SSE) logs        |
 | `make mail`       | Print the Mailpit URL (every email the app sends lands there) |
+| `make analytics-backfill` | Rebuild the analytics projections from orders (also run by `make seed`) |
 
 `make up` also starts the Celery `worker` and `beat` services (see their logs with
 `docker compose logs -f worker beat`), the event `relay` and `consumers` services and the
@@ -144,6 +149,9 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   `search_vector`) are denormalised and recomputed by `apps/catalog/stats.py` at the end of
   every import with set-based SQL. Anything that changes offers, reviews, order items or a
   product's name/category must refresh them.
+- `Order.source`: `olist` (the importer) or `app` (`checkout()`), required (no default, so a new
+  creation path can't forget it); `replay` comes with the replay step. Analytics reports every
+  metric per source.
 - `sales_count` / `first_sold_at` only count units on orders that aren't `canceled` or
   `unavailable` (unpaid orders count until they're canceled or expire). After an import the SQL
   applies it directly; in the order flow the `product_stats` consumer keeps it current.
@@ -393,6 +401,11 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   401/403), and each `/staff/*` page renders its staff header only after its data check passed
   (no shared layout that would flash staff chrome). The "Staff" header link shows for
   `is_staff` users.
+- The 404 for a staff page is still HTTP 200 (streamed route), so nothing in the page's static
+  part may reveal it: `app/staff/layout.tsx` gives every `/staff/*` page the neutral title
+  "Olist Commerce" + robots `noindex, nofollow`; the real "<Page> · Staff · …" title is set
+  client-side by `DocumentTitle` inside the staff header, i.e. only after the staff check.
+  Staff pages export no `metadata` title of their own.
 - Pages: `/staff/events` (filters: type, aggregate id, date range; URL = state via
   `lib/staff-params.ts`; payload as JSON), `/staff/orders/<id>` (the order's events in order,
   each with the consumers that should process it and when they did, from ProcessedEvent),
@@ -409,6 +422,38 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   processed the event find their ProcessedEvent row and just ack; the consumer that
   dead-lettered it has no row (each attempt rolled back), so it applies it now. The DLQ entry
   stays for the record, marked retried.
+
+## Analytics (staff dashboard)
+
+- Projections (`apps/analytics`): `DailySales`, `CategorySales`, `StateSales`, `DeliveryStats`,
+  one row per (day, source[, category/state]) with a unique key. **Day = purchase date in
+  America/Sao_Paulo** (`ANALYTICS_TIMEZONE`), for every table (delivery stats included).
+- Definitions: `orders` and `canceled_orders` (canceled + unavailable) count every placed order;
+  **revenue counts only orders that reached approved or later** (approved, invoiced, processing,
+  shipped, delivered): GMV = items + freight, AOV = GMV / paid orders (Decimal, half-up),
+  category revenue = item prices (freight isn't per category), state = shipping state else the
+  customer's. Delivery: purchase → delivered seconds, late = delivered (local date) after the
+  estimated date.
+- State-based: `recompute_days(days, source)` DELETEs and re-INSERTs those rows from the orders
+  in one transaction, after `pg_advisory_xact_lock` per (source, day) taken in ascending day
+  order, so concurrent recomputes (consumer, backfill, two consumers) queue instead of
+  double-inserting or deadlocking. The `analytics` consumer recomputes the order's purchase day
+  on every order event; `backfill_analytics` / `make analytics-backfill` rebuilds everything (the
+  importer emits no events) and runs as part of `make seed`.
+- `GET /api/staff/analytics/?source=&date_from=&date_to=` (staff only, 404 otherwise; no dates =
+  all data for that source). `/staff/analytics`: KPI cards, revenue over time, by category, by
+  state, weekly delivery performance (shadcn chart/Recharts, no animation), source filter and a
+  Calendar range picker with presets relative to the newest data; URL = state via
+  `lib/analytics-params.ts`. **Staff only**: GMV, cancellations and lateness are business data.
+- Dashboard choices: the default source is `olist` (`DEFAULT_SOURCE`, omitted from the URL; All is
+  `?source=all`) so a day of app test orders doesn't flatten the first view. Revenue over time
+  uses a time-scaled numeric x axis and breaks the line after gaps > 31 days (2018 → 2026 shows
+  as a gap). Category: top 10 bars, the rest as a note ("+N categories, R$ X"). State: top 10
+  horizontal bars + "Other (n)", every bar labelled. Series use `--chart-1..5` (real colours in
+  both themes, ≥ 3:1 on the background); delivery = line `chart-1` + translucent bars `chart-4`.
+- Updates while open with a gentle poll (`router.refresh()` every 10 s while the tab is visible),
+  not SSE: projections change in bursts (hundreds per second during a replay), so a stream would
+  need coalescing, and a dashboard isn't latency-critical.
 
 ## UI rules
 
@@ -498,4 +543,4 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
 
 - Kafka (Redis Streams covers the concepts), Kubernetes, microservices split, real payments
   (Stripe test mode only, in a later step), websockets, push notifications, an event replay
-  command, the event explorer and analytics (later steps).
+  command (later step), multi-tenant analytics.

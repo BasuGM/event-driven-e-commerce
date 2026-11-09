@@ -112,6 +112,7 @@ def checkout(user, address: ShippingAddress, *, now: datetime | None = None) -> 
         customer = _customer_for(user, address)
         order = Order.objects.create(
             external_id=new_external_id(),
+            source=Order.Source.APP,
             customer=customer,
             olist_customer_id=new_external_id(),  # Olist issues a per-order customer id too
             status=Order.Status.CREATED,

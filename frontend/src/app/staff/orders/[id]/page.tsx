@@ -1,5 +1,4 @@
 import { CheckCircle2, Clock } from "lucide-react"
-import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { Suspense } from "react"
@@ -12,7 +11,6 @@ import { Card, CardContent } from "@/components/ui/card"
 import { getStaffOrderTimeline, orLogin } from "@/lib/api/server"
 import { formatDateTime } from "@/lib/format"
 
-export const metadata: Metadata = { title: "Order events · Staff" }
 
 export default function StaffOrderEventsPage({ params }: PageProps<"/staff/orders/[id]">) {
   return (

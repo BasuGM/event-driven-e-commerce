@@ -1,4 +1,3 @@
-import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 import { Suspense } from "react"
 
@@ -12,7 +11,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { getStaffHealth, orLogin } from "@/lib/api/server"
 import { formatDateTime, formatInteger } from "@/lib/format"
 
-export const metadata: Metadata = { title: "Event health · Staff" }
 
 export default function StaffHealthPage() {
   return (

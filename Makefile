@@ -7,7 +7,7 @@ DB := $(COMPOSE) exec -T db
 -include .env
 export
 
-.PHONY: require-env up down reset migrate seed seed-large snapshot restore test test-backend test-frontend typecheck e2e types backfill-sales events-logs mail
+.PHONY: require-env up down reset migrate seed seed-large snapshot restore test test-backend test-frontend typecheck e2e types backfill-sales events-logs mail analytics-backfill
 
 require-env:
 	@test -f .env || { echo "Missing .env. Run: cp .env.example .env"; exit 1; }
@@ -35,10 +35,16 @@ migrate: require-env
 seed: require-env
 	$(BACKEND) python manage.py import_olist --size small
 	$(BACKEND) python manage.py seed_dev_users
+	$(BACKEND) python manage.py backfill_analytics
 
 seed-large: require-env
 	$(BACKEND) python manage.py import_olist --size large
 	$(BACKEND) python manage.py seed_dev_users
+	$(BACKEND) python manage.py backfill_analytics
+
+# Rebuild the analytics projections from orders (the importer emits no events)
+analytics-backfill: require-env
+	$(BACKEND) python manage.py backfill_analytics
 
 snapshot: require-env
 	$(DB) pg_dump -U $(POSTGRES_USER) -d $(POSTGRES_DB) -Fc \

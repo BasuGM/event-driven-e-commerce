@@ -512,6 +512,43 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedProductReviewList'
           description: ''
+  /api/staff/analytics/:
+    get:
+      operationId: staff_analytics_retrieve
+      description: 'Business metrics: staff only (404 for everyone else), like the
+        event explorer.'
+      summary: Analytics dashboard data (staff)
+      parameters:
+      - in: query
+        name: date_from
+        schema:
+          type: string
+        description: YYYY-MM-DD (purchase day, Sao Paulo time)
+      - in: query
+        name: date_to
+        schema:
+          type: string
+        description: YYYY-MM-DD
+      - in: query
+        name: source
+        schema:
+          type: string
+          enum:
+          - all
+          - app
+          - olist
+          - replay
+      tags:
+      - staff
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dashboard'
+          description: ''
   /api/staff/dead-letters/{entry_id}/retry/:
     post:
       operationId: staff_dead_letters_retry_create
@@ -854,6 +891,24 @@ components:
       - group
       - label
       - slug
+    CategoryRow:
+      type: object
+      properties:
+        slug:
+          type: string
+        label:
+          type: string
+        revenue:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        units:
+          type: integer
+      required:
+      - label
+      - revenue
+      - slug
+      - units
     CheckoutRequest:
       type: object
       properties:
@@ -896,6 +951,74 @@ components:
           readOnly: true
       required:
       - csrf_token
+    DailyPoint:
+      type: object
+      properties:
+        day:
+          type: string
+          format: date
+        orders:
+          type: integer
+        paid_orders:
+          type: integer
+        gmv:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+      required:
+      - day
+      - gmv
+      - orders
+      - paid_orders
+    Dashboard:
+      type: object
+      properties:
+        source:
+          $ref: '#/components/schemas/SourceEnum'
+        date_from:
+          type: string
+          format: date
+        date_to:
+          type: string
+          format: date
+        first_day:
+          type: string
+          format: date
+          nullable: true
+          description: First day with data (for this source)
+        last_day:
+          type: string
+          format: date
+          nullable: true
+        kpis:
+          $ref: '#/components/schemas/Kpis'
+        daily:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyPoint'
+        by_category:
+          type: array
+          items:
+            $ref: '#/components/schemas/CategoryRow'
+        by_state:
+          type: array
+          items:
+            $ref: '#/components/schemas/StateRow'
+        delivery_by_week:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeliveryWeek'
+      required:
+      - by_category
+      - by_state
+      - daily
+      - date_from
+      - date_to
+      - delivery_by_week
+      - first_day
+      - kpis
+      - last_day
+      - source
     DeadLetterRetry:
       type: object
       properties:
@@ -935,6 +1058,27 @@ components:
       - retried_at
       - retried_by
       - stream
+    DeliveryWeek:
+      type: object
+      properties:
+        week:
+          type: string
+          format: date
+        delivered:
+          type: integer
+        avg_days:
+          type: number
+          format: double
+          nullable: true
+        late_share:
+          type: number
+          format: double
+          nullable: true
+      required:
+      - avg_days
+      - delivered
+      - late_share
+      - week
     Dimensions:
       type: object
       properties:
@@ -1099,6 +1243,54 @@ components:
       description: |-
         * `ok` - ok
         * `error` - error
+    Kpis:
+      type: object
+      properties:
+        orders:
+          type: integer
+          description: Every placed order
+        canceled_orders:
+          type: integer
+          description: Canceled or unavailable
+        cancel_rate:
+          type: number
+          format: double
+          nullable: true
+        paid_orders:
+          type: integer
+          description: Reached approved or later
+        gmv:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          description: Items + freight of paid orders
+        aov:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          nullable: true
+          description: GMV / paid orders
+        delivered:
+          type: integer
+        avg_delivery_days:
+          type: number
+          format: double
+          nullable: true
+        late_share:
+          type: number
+          format: double
+          nullable: true
+          description: Delivered after the estimated date
+      required:
+      - aov
+      - avg_delivery_days
+      - cancel_rate
+      - canceled_orders
+      - delivered
+      - gmv
+      - late_share
+      - orders
+      - paid_orders
     LoginRequest:
       type: object
       properties:
@@ -1727,6 +1919,18 @@ components:
       - state
       - street
       - zip_code
+    SourceEnum:
+      enum:
+      - all
+      - olist
+      - app
+      - replay
+      type: string
+      description: |-
+        * `all` - all
+        * `olist` - olist
+        * `app` - app
+        * `replay` - replay
     StaffDeadLetter:
       type: object
       properties:
@@ -1888,6 +2092,21 @@ components:
         * `SP` - SP
         * `SE` - SE
         * `TO` - TO
+    StateRow:
+      type: object
+      properties:
+        state:
+          type: string
+        orders:
+          type: integer
+        gmv:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+      required:
+      - gmv
+      - orders
+      - state
     Stats:
       type: object
       properties:

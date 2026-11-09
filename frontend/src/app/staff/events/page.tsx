@@ -1,4 +1,3 @@
-import type { Metadata } from "next"
 import { notFound, redirect } from "next/navigation"
 import { Suspense } from "react"
 
@@ -11,7 +10,6 @@ import { getStaffEvents, getStaffEventTypes, orLogin } from "@/lib/api/server"
 import { hasEmptyParams, parseEventFilters, staffEventsHref } from "@/lib/staff-params"
 import { formatInteger } from "@/lib/format"
 
-export const metadata: Metadata = { title: "Events · Staff" }
 
 /** Static shell; the request-time part (and the staff header) renders inside Suspense. */
 export default function StaffEventsPage({ searchParams }: PageProps<"/staff/events">) {

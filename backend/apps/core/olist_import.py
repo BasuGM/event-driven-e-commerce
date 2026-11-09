@@ -354,7 +354,7 @@ class OlistImporter:
         spec = TableSpec(
             Order,
             ["external_id"],
-            ["customer", "olist_customer_id", "status", "purchased_at", "approved_at",
+            ["source", "customer", "olist_customer_id", "status", "purchased_at", "approved_at",
              "delivered_carrier_at", "delivered_customer_at", "estimated_delivery_date"],
         )
 
@@ -367,6 +367,7 @@ class OlistImporter:
                 raise BadRow("invalid status")
             return Order(
                 external_id=row["order_id"],
+                source=Order.Source.OLIST,
                 customer_id=pk,
                 olist_customer_id=row["customer_id"],
                 status=status,

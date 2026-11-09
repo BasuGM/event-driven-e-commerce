@@ -314,6 +314,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/staff/analytics/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics dashboard data (staff)
+         * @description Business metrics: staff only (404 for everyone else), like the event explorer.
+         */
+        get: operations["staff_analytics_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/staff/dead-letters/{entry_id}/retry/": {
         parameters: {
             query?: never;
@@ -523,6 +543,13 @@ export interface components {
              */
             readonly group: components["schemas"]["GroupEnum"];
         };
+        CategoryRow: {
+            slug: string;
+            label: string;
+            /** Format: decimal */
+            revenue: string;
+            units: number;
+        };
         CheckoutRequest: {
             shipping: components["schemas"]["ShippingAddressRequest"];
         };
@@ -546,6 +573,33 @@ export interface components {
         Csrf: {
             readonly csrf_token: string;
         };
+        DailyPoint: {
+            /** Format: date */
+            day: string;
+            orders: number;
+            paid_orders: number;
+            /** Format: decimal */
+            gmv: string;
+        };
+        Dashboard: {
+            source: components["schemas"]["SourceEnum"];
+            /** Format: date */
+            date_from: string;
+            /** Format: date */
+            date_to: string;
+            /**
+             * Format: date
+             * @description First day with data (for this source)
+             */
+            first_day: string | null;
+            /** Format: date */
+            last_day: string | null;
+            kpis: components["schemas"]["Kpis"];
+            daily: components["schemas"]["DailyPoint"][];
+            by_category: components["schemas"]["CategoryRow"][];
+            by_state: components["schemas"]["StateRow"][];
+            delivery_by_week: components["schemas"]["DeliveryWeek"][];
+        };
         DeadLetterRetry: {
             readonly dlq_entry_id: string;
             readonly event_id: string;
@@ -558,6 +612,15 @@ export interface components {
             readonly retried_at: string;
             /** @description false = this entry had already been retried (no new delivery) */
             created: boolean;
+        };
+        DeliveryWeek: {
+            /** Format: date */
+            week: string;
+            delivered: number;
+            /** Format: double */
+            avg_days: number | null;
+            /** Format: double */
+            late_share: number | null;
         };
         Dimensions: {
             weight_g: number | null;
@@ -633,6 +696,34 @@ export interface components {
          * @enum {string}
          */
         HealthStatusEnum: "ok" | "error";
+        Kpis: {
+            /** @description Every placed order */
+            orders: number;
+            /** @description Canceled or unavailable */
+            canceled_orders: number;
+            /** Format: double */
+            cancel_rate: number | null;
+            /** @description Reached approved or later */
+            paid_orders: number;
+            /**
+             * Format: decimal
+             * @description Items + freight of paid orders
+             */
+            gmv: string;
+            /**
+             * Format: decimal
+             * @description GMV / paid orders
+             */
+            aov: string | null;
+            delivered: number;
+            /** Format: double */
+            avg_delivery_days: number | null;
+            /**
+             * Format: double
+             * @description Delivered after the estimated date
+             */
+            late_share: number | null;
+        };
         LoginRequest: {
             /** Format: email */
             email: string;
@@ -901,6 +992,14 @@ export interface components {
             /** @description CEP, e.g. 01310-100 */
             zip_code: string;
         };
+        /**
+         * @description * `all` - all
+         *     * `olist` - olist
+         *     * `app` - app
+         *     * `replay` - replay
+         * @enum {string}
+         */
+        SourceEnum: "all" | "olist" | "app" | "replay";
         StaffDeadLetter: {
             entry_id: string;
             event_id: string | null;
@@ -968,6 +1067,12 @@ export interface components {
          * @enum {string}
          */
         StateEnum: "AC" | "AL" | "AP" | "AM" | "BA" | "CE" | "DF" | "ES" | "GO" | "MA" | "MT" | "MS" | "MG" | "PA" | "PB" | "PR" | "PE" | "PI" | "RJ" | "RN" | "RS" | "RO" | "RR" | "SC" | "SP" | "SE" | "TO";
+        StateRow: {
+            state: string;
+            orders: number;
+            /** Format: decimal */
+            gmv: string;
+        };
         Stats: {
             products: number;
             orders: number;
@@ -1504,6 +1609,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaginatedProductReviewList"];
+                };
+            };
+        };
+    };
+    staff_analytics_retrieve: {
+        parameters: {
+            query?: {
+                /** @description YYYY-MM-DD (purchase day, Sao Paulo time) */
+                date_from?: string;
+                /** @description YYYY-MM-DD */
+                date_to?: string;
+                source?: "all" | "app" | "olist" | "replay";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dashboard"];
                 };
             };
         };

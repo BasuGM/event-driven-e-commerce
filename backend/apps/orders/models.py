@@ -17,7 +17,13 @@ class Order(models.Model):
         CANCELED = "canceled"
         UNAVAILABLE = "unavailable"
 
+    class Source(models.TextChoices):
+        OLIST = "olist"  # imported historical orders (the importer)
+        APP = "app"  # placed in this app (checkout)
+
     external_id = models.CharField(max_length=32, unique=True)
+    # Where the order came from; analytics reports every metric per source
+    source = models.CharField(max_length=10, choices=Source.choices)
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name="orders")
     olist_customer_id = models.CharField(
         max_length=32, unique=True, help_text="Olist's per-order customer_id"
@@ -43,6 +49,7 @@ class Order(models.Model):
             models.Index(fields=["purchased_at"]),
             # Also serves status-only filters (leftmost column), so no separate status index
             models.Index(fields=["status", "purchased_at"]),
+            models.Index(fields=["source", "purchased_at"]),
         ]
 
     def __str__(self) -> str:

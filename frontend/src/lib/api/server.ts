@@ -11,6 +11,7 @@ import {
   type OrderDetail,
   type OrderPage,
   type Shipping,
+  type AnalyticsDashboard,
   type StaffEventPage,
   type StaffHealth,
   type StaffTimelineEvent,
@@ -136,4 +137,18 @@ export async function getStaffHealth(): Promise<StaffHealth | null> {
   if (data) return data
   if (response.status === 404) return null
   throw new Error(`Failed to load event health (${response.status})`)
+}
+
+export async function getStaffAnalytics(filters: {
+  source: "all" | "olist" | "app" | "replay"
+  date_from?: string
+  date_to?: string
+}): Promise<AnalyticsDashboard | null> {
+  const api = await asVisitor()
+  const { data, response } = await withTimeout("staff analytics", (signal) =>
+    api.GET("/api/staff/analytics/", { params: { query: filters }, signal }),
+  )
+  if (data) return data
+  if (response.status === 404) return null
+  throw new Error(`Failed to load analytics (${response.status})`)
 }
