@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { browserApi, ensureCsrf, NETWORK_PROBLEM, toProblem } from "@/lib/api/browser"
 import { newNonce, withIntent } from "@/lib/cart-intent"
 import { loginHref } from "@/lib/urls"
+import { useHydrated } from "@/lib/use-hydrated"
 
 const QUANTITIES = Array.from({ length: 10 }, (_, i) => String(i + 1))
 
@@ -41,6 +42,7 @@ export function AddToCart({ offerId, label, returnTo }: { offerId: number; label
   const [quantity, setQuantity] = useState("1")
   const [status, setStatus] = useState<CartStatus | null>(null)
   const [pending, startTransition] = useTransition()
+  const hydrated = useHydrated()
 
   const add = () =>
     startTransition(async () => {
@@ -82,7 +84,7 @@ export function AddToCart({ offerId, label, returnTo }: { offerId: number; label
             ))}
           </SelectContent>
         </Select>
-        <Button size="sm" onClick={add} disabled={pending} aria-label={`Add to cart: ${label}`}>
+        <Button size="sm" onClick={add} disabled={!hydrated || pending} aria-label={`Add to cart: ${label}`}>
           {pending ? <Loader2 className="animate-spin" /> : <ShoppingBag />}
           Add to cart
         </Button>

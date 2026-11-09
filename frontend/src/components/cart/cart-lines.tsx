@@ -13,6 +13,7 @@ import type { CartLine } from "@/lib/api/client"
 import { formatBRL } from "@/lib/format"
 
 import { LineWarning } from "./line-warning"
+import { useHydrated } from "@/lib/use-hydrated"
 
 const MAX_LINE_QUANTITY = 10 // = apps.cart.models.MAX_LINE_QUANTITY
 
@@ -40,6 +41,7 @@ export function CartLines({ lines }: { lines: CartLine[] }) {
 function CartLineRow({ line }: { line: CartLine }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
+  const hydrated = useHydrated()
   const [error, setError] = useState<string | null>(null)
 
   // Every edit returns the new cart; refreshing re-renders the server page (totals, header badge)
@@ -89,7 +91,7 @@ function CartLineRow({ line }: { line: CartLine }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Select value={String(line.quantity)} onValueChange={setQuantity} disabled={pending}>
+          <Select value={String(line.quantity)} onValueChange={setQuantity} disabled={!hydrated || pending}>
             <SelectTrigger size="sm" className="w-16" aria-label={`Quantity of ${line.product.name}`}>
               <SelectValue />
             </SelectTrigger>
@@ -101,7 +103,7 @@ function CartLineRow({ line }: { line: CartLine }) {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="ghost" size="sm" onClick={remove} disabled={pending} aria-label={`Remove ${line.product.name}`}>
+          <Button variant="ghost" size="sm" onClick={remove} disabled={!hydrated || pending} aria-label={`Remove ${line.product.name}`}>
             {pending ? <Loader2 className="animate-spin" /> : <Trash2 />}
             <span className="hidden sm:inline">Remove</span>
           </Button>

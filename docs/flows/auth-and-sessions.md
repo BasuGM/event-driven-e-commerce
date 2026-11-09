@@ -53,6 +53,8 @@ All of this is in [backend/apps/accounts/views.py](../../backend/apps/accounts/v
      same whether the email or the password was wrong.
 3. **The session.** `login()` starts the session. Django then rotates both the session id and
    the CSRF token.
+4. **A full page load to `next`** (`window.location.assign`). See
+   [After an auth change: a full page load](#after-an-auth-change-a-full-page-load).
 
 ### CSRF rotation is Django's behaviour
 
@@ -73,6 +75,8 @@ once. A token cached before login would be stale afterwards.
     messages.
   - The username is set to the email.
 - **`POST /api/auth/logout/`** ends the session (204).
+- **Register and logout also end with a full page load:** to `next` after registering, to `/` after
+  logging out.
 
 `seed_dev_users` creates four dev accounts (admin, staff, customer, replay). It refuses to run
 without `ALLOW_DEV_SEED`, which only the dev and test settings set.
@@ -112,6 +116,49 @@ for `API_URL`, and copies the incoming request's cookies into a `cookie` header.
   What they need is passed in as props. For example, `AddToCart` receives `returnTo` from the
   page instead of calling `usePathname()`.
 
+## After an auth change: a full page load
+
+After login, register and logout, the forms navigate with `window.location.assign()`, not a
+client-side `router.push`/`replace`:
+
+- **Why a full load.** The session changed, so everything server-rendered for the old session must
+  render again: the header's user menu and cart badge (a Server Component in the root layout,
+  which a client-side navigation reuses unchanged), and any route the client router has cached.
+- **What it replaced.** The forms used to call `router.replace(next)` and then immediately
+  `router.refresh()`, to re-render the header. Under load that refresh's request could stall, and
+  the navigation then never completed: the URL stayed on `/login`. A Playwright trace from
+  2026-11-09 shows this for the identical checkout pattern: the refresh's request was still
+  pending after more than 20 s, and the URL never changed. Seen in 3 of 6 full e2e runs.
+- **The regression check.** The e2e `logIn()` helper asserts the header shows the account menu
+  after login.
+
+## Before hydration: disabled controls and POST forms
+
+A server-rendered page is visible before React hydrates it. Until then, its buttons look ready but
+do nothing, and a form falls back to the browser's native behaviour.
+
+- **The risk that's now closed.** The login, register and checkout forms used to have no `method`,
+  and their inputs carry `name` attributes. A submit before hydration was therefore a native
+  **GET** to the current URL, with the fields in the query string:
+  `/login?next=/shop&email=…&password=…`, or the shipping address on `/checkout`. That puts
+  credentials in the URL, browser history, server access logs and `Referer` headers.
+- **The fix, part 1: `method="post"`** on all three forms, so even a native submit never puts
+  fields in the URL.
+- **The fix, part 2: controls disabled until hydrated.** The `useHydrated()` hook
+  ([frontend/src/lib/use-hydrated.ts](../../frontend/src/lib/use-hydrated.ts)) returns false in
+  the server render and during hydration, then true. These controls render **disabled** until
+  then:
+  - the login, register and Place order submits (a disabled default button also blocks a submit
+    by Enter);
+  - Pay, Cancel order, Add to cart, the cart's quantity and Remove, the account menu (which holds
+    Log out), and the dead-letter Retry.
+
+  So a click can't be lost, and a form can't be submitted natively. Playwright waits for a control
+  to be enabled before clicking.
+- **Tests.** A unit test server-renders the login form and checks its `method="post"` and its
+  disabled submit ([use-hydrated.test.tsx](../../frontend/src/lib/use-hydrated.test.tsx)). In e2e,
+  a "Pay" click made 0.9 s before hydration had sent no request at all; that can't happen now.
+
 ## After login: `next` and the cart intent
 
 - **The `next` redirect.** The login and register pages accept `?next=<path>`. `safeNext()` in
@@ -140,4 +187,5 @@ HTTPS. These are listed in CLAUDE.md's "Before deploying" checklist and in
 - [backend/apps/accounts/](../../backend/apps/accounts/) (views, serializers, authentication, models)
 - [backend/config/settings/base.py](../../backend/config/settings/base.py) (sessions, CSRF, `REST_FRAMEWORK`)
 - [frontend/next.config.ts](../../frontend/next.config.ts), [frontend/src/lib/api/server.ts](../../frontend/src/lib/api/server.ts), [frontend/src/lib/api/browser.ts](../../frontend/src/lib/api/browser.ts), [frontend/src/lib/urls.ts](../../frontend/src/lib/urls.ts), [frontend/src/lib/cart-intent.ts](../../frontend/src/lib/cart-intent.ts)
-- Tests: [test_auth.py](../../backend/tests/test_auth.py), [cart-intent.test.ts](../../frontend/src/lib/cart-intent.test.ts)
+- [frontend/src/components/auth/](../../frontend/src/components/auth/) (login and register forms), [frontend/src/components/layout/user-menu.tsx](../../frontend/src/components/layout/user-menu.tsx) (logout), [frontend/src/lib/use-hydrated.ts](../../frontend/src/lib/use-hydrated.ts)
+- Tests: [test_auth.py](../../backend/tests/test_auth.py), [cart-intent.test.ts](../../frontend/src/lib/cart-intent.test.ts), [use-hydrated.test.tsx](../../frontend/src/lib/use-hydrated.test.tsx), [e2e/helpers.ts](../../frontend/e2e/helpers.ts) (`logIn`)

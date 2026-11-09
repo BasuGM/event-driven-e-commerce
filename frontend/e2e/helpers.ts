@@ -7,14 +7,16 @@ export const ASYNC_TIMEOUT = 30_000
 
 export async function logIn(page: Page, email = EMAIL, password = PASSWORD) {
   await page.goto("/login?next=/shop")
-  // Retry until the (client) form is hydrated and the login goes through
-  await expect(async () => {
-    await page.getByLabel("Email").fill(email)
-    await page.getByLabel("Password").fill(password)
-    await page.getByRole("button", { name: "Log in" }).click()
-    // Match the pathname, not the whole URL: /\/shop$/ would also match /login?next=/shop
-    await expect(page).toHaveURL((url) => url.pathname === "/shop", { timeout: 5_000 })
-  }).toPass({ timeout: 90_000 })
+  // The submit is disabled until the form has hydrated (useHydrated): wait for that before
+  // typing, so hydration can't reset the fields, then submit exactly once.
+  const submit = page.getByRole("button", { name: "Log in" })
+  await expect(submit).toBeEnabled({ timeout: 60_000 })
+  await page.getByLabel("Email").fill(email)
+  await page.getByLabel("Password").fill(password)
+  await submit.click()
+  // A full page load follows a login. Match the pathname: /\/shop$/ would match /login?next=/shop
+  await expect(page).toHaveURL((url) => url.pathname === "/shop", { timeout: 60_000 })
+  // The header (root layout) is rendered with the new session
   await expect(page.getByRole("button", { name: /Account menu/ })).toBeVisible()
 }
 
@@ -34,16 +36,16 @@ export async function placeOrder(page: Page): Promise<string> {
   await page.goto("/shop?in_stock=true")
   await page.locator('main a[href^="/shop/"]').first().click()
   await expect(page).toHaveURL((url) => /^\/shop\/[a-z0-9-]+$/.test(url.pathname))
-  const addButton = page.getByRole("button", { name: /^Add to cart/ }).first()
-  await expect(async () => {
-    await addButton.click()
-    await expect(page.getByRole("status").filter({ hasText: "Added to cart" })).toBeVisible({ timeout: 5_000 })
-  }).toPass({ timeout: 60_000 })
+  // Enabled only once hydrated, and Playwright waits for that: one click, never a lost or double add
+  await page.getByRole("button", { name: /^Add to cart/ }).first().click()
+  await expect(page.getByRole("status").filter({ hasText: "Added to cart" })).toBeVisible()
   await expect(page.getByRole("link", { name: /Cart, 1 item/ })).toBeVisible()
 
   await page.goto("/cart")
   await page.getByRole("link", { name: "Checkout" }).click()
   await expect(page).toHaveURL((url) => url.pathname === "/checkout")
+  // Hydrated before typing (the submit is disabled until then)
+  await expect(page.getByRole("button", { name: "Place order" })).toBeEnabled({ timeout: 60_000 })
   await page.getByLabel("Street and number").fill("Av. Paulista, 1000")
   await page.getByLabel("City").fill("São Paulo")
   await page.getByRole("combobox", { name: "State" }).click()
@@ -53,5 +55,7 @@ export async function placeOrder(page: Page): Promise<string> {
   await page.getByRole("button", { name: "Place order" }).click()
 
   await expect(page).toHaveURL((url) => /^\/orders\/[0-9a-f]{32}$/.test(url.pathname), { timeout: 30_000 })
+  // The header (root layout) must show the emptied cart on the order page: "Cart", not "Cart, 1 item"
+  await expect(page.getByRole("link", { name: "Cart", exact: true })).toBeVisible()
   return new URL(page.url()).pathname.split("/").at(-1)!
 }

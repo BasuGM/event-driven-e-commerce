@@ -76,6 +76,7 @@ frontend/src/
   app/staff/        staff pages (events, health, orders/[id], analytics); components/staff/,
                     components/analytics/ (charts, filters); lib/analytics-params.ts
   lib/checkout-attempt.ts  idempotency keys for checkout (reuse on retry)
+  lib/use-hydrated.ts  false until hydrated: JS-driven controls stay disabled until then
   lib/shop-params.ts  URL search params <-> shop filters (the only translation layer)
 frontend/e2e/       Playwright smoke tests (run.sh is the e2e container entry point)
 docs/           Human docs: architecture, data model, API, flows/, adr/, operations/ (README links in)
@@ -219,6 +220,14 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   convert only via `lib/shop-params.ts`.
 - Only our own `TimeoutError` becomes `BackendTimeoutError`; an `AbortError` (e.g. Next aborting a
   prerender pass) propagates unchanged.
+- After an auth change (login, register, logout) and after checkout, navigate with a **full page
+  load** (`window.location.assign`), never `router.push/replace` + `router.refresh()`: the header
+  (user menu, cart badge) is a Server Component in the root layout, which a soft navigation
+  reuses, and a refresh right after the navigation raced it (trace 2026-11-09: refresh pending
+  > 20 s, URL never changed).
+- Controls that act through JavaScript render **disabled until hydrated** (`useHydrated()` in
+  `lib/use-hydrated.ts`), and forms use `method="post"`: before hydration a click is lost, and a
+  method-less form falls back to a native GET that put credentials or the address in the URL.
 - Client components inside cached/prerendered pages must not read the URL (`usePathname`) or
   cookies; pass what they need as props (e.g. `AddToCart` gets `returnTo`). Protected pages turn a
   401 into `redirect("/login?next=…")` via `orLogin()`; `next` is checked by `safeNext()`.
@@ -619,15 +628,6 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   memory pressure (cold on the first run: `npm ci` + compiles). `scripts/e2e.sh` warms every route
   the specs enter before Playwright starts. Possible follow-up: run e2e against a production build
   (`next build && next start`) — faster, but it changes behaviour (no dev compiles, prerendering).
-- **Flaky e2e navigation (root cause found, fix pending):** the login, register, logout and
-  checkout forms call `router.push/replace(target)` and immediately `router.refresh()` (to
-  re-render the root layout's header). When that refresh's RSC request stalls on the busy dev
-  server, the navigation never completes: the URL stays on `/login` or `/checkout` and the new
-  page's effects never run (trace 2026-11-09: checkout POST 201, navigation RSC 200, refresh RSC
-  pending > 20 s, no URL change; the two login failures had the same symptom, no trace). Seen in
-  3 of 6 full-suite isolated runs on 2026-11-09. A full-load experiment
-  removed it but exposed clicks before hydration; the fix is in progress.
-
 - `redis` (redis-py) is pinned to 6.4.0: `kombu[redis]` (Celery's transport) requires `<6.5`.
   It was 8.1.0 in Steps 1–2, used only for the health check.
 

@@ -3,7 +3,6 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Loader2 } from "lucide-react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { Controller, useForm, type Path } from "react-hook-form"
 import { z } from "zod"
@@ -13,6 +12,7 @@ import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/c
 import { Input } from "@/components/ui/input"
 import { browserApi, ensureCsrf, NETWORK_PROBLEM, toProblem } from "@/lib/api/browser"
 import { safeNext } from "@/lib/urls"
+import { useHydrated } from "@/lib/use-hydrated"
 
 // Mirrors RegisterRequest; Django's password validators still run on the server.
 export const registerSchema = z.object({
@@ -29,8 +29,8 @@ const FIELDS: { name: Path<RegisterValues>; label: string; type: string; autoCom
 ]
 
 export function RegisterForm({ next }: { next?: string }) {
-  const router = useRouter()
   const [formError, setFormError] = useState<string | null>(null)
+  const hydrated = useHydrated()
   const form = useForm<RegisterValues>({
     resolver: zodResolver(registerSchema),
     defaultValues: { name: "", email: "", password: "" },
@@ -53,15 +53,15 @@ export function RegisterForm({ next }: { next?: string }) {
         if (!Object.keys(problem.fieldErrors).length) setFormError(problem.message)
         return
       }
-      router.replace(safeNext(next))
-      router.refresh()
+      // Full page load: the new session must reach the server-rendered header (see LoginForm)
+      window.location.assign(safeNext(next))
     } catch {
       setFormError(NETWORK_PROBLEM.message)
     }
   }
 
   return (
-    <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="space-y-6">
+    <form method="post" onSubmit={form.handleSubmit(onSubmit)} noValidate className="space-y-6">
       <FieldGroup>
         {FIELDS.map(({ name, label, type, autoComplete }) => (
           <Controller
@@ -92,7 +92,7 @@ export function RegisterForm({ next }: { next?: string }) {
           {formError}
         </p>
       )}
-      <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
+      <Button type="submit" className="w-full" disabled={!hydrated || form.formState.isSubmitting}>
         {form.formState.isSubmitting && <Loader2 className="animate-spin" />}
         Create account
       </Button>

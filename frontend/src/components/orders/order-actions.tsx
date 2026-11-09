@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { browserApi, ensureCsrf, NETWORK_PROBLEM, toProblem } from "@/lib/api/browser"
 import { formatBRL } from "@/lib/format"
+import { useHydrated } from "@/lib/use-hydrated"
 
 const MESSAGES: Record<string, string> = {
   reservation_expired: "Too late: the stock hold expired, so the order was canceled and the items released.",
@@ -42,6 +43,7 @@ export function OrderActions({
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
+  const hydrated = useHydrated()
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -100,7 +102,7 @@ export function OrderActions({
           </Button>
         )}
         {paymentsEnabled && canPay && !paymentInProgress && (
-          <Button onClick={pay} disabled={pending}>
+          <Button onClick={pay} disabled={!hydrated || pending}>
             {busy === "pay" ? <Loader2 className="animate-spin" /> : <CreditCard />}
             Pay {formatBRL(total)}
           </Button>
@@ -108,7 +110,7 @@ export function OrderActions({
         {canCancel && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button size="sm" variant="ghost" disabled={pending}>
+              <Button size="sm" variant="ghost" disabled={!hydrated || pending}>
                 {busy === "cancel" ? <Loader2 className="animate-spin" /> : <XCircle />}
                 Cancel order
               </Button>

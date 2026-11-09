@@ -3,7 +3,6 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { AlertTriangle, Loader2, RotateCw } from "lucide-react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { Controller, useForm, type Path } from "react-hook-form"
 import { z } from "zod"
@@ -16,6 +15,7 @@ import { browserApi, ensureCsrf, NETWORK_PROBLEM, toProblem, type ApiProblem } f
 import type { Cart, CartLine, Shipping } from "@/lib/api/client"
 import { currentAttempt, fingerprint, settleAttempt } from "@/lib/checkout-attempt"
 import { formatBRL } from "@/lib/format"
+import { useHydrated } from "@/lib/use-hydrated"
 
 export const BR_STATES = [
   "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR",
@@ -70,8 +70,8 @@ export function CheckoutForm({
   defaultName: string
   lastShipping?: Shipping | null
 }) {
-  const router = useRouter()
   const [problem, setProblem] = useState<ApiProblem | null>(null)
+  const hydrated = useHydrated()
   const form = useForm<ShippingValues>({
     resolver: zodResolver(shippingSchema),
     defaultValues: shippingDefaults(defaultName, lastShipping),
@@ -95,8 +95,11 @@ export function CheckoutForm({
       status = response.status
       if (data) {
         settleAttempt(window.sessionStorage, status)
-        router.push(`/orders/${data.id}`)
-        router.refresh()
+        // A full page load of the new order, not router.push() + router.refresh(): the order page is
+        // dynamic anyway, and the root layout's header (cart badge, now empty) is rendered fresh with
+        // it. refresh() right after push() raced the navigation: when it stalled, the URL stayed
+        // on /checkout.
+        window.location.assign(`/orders/${data.id}`)
         return
       }
       const result = toProblem(status, error)
@@ -119,7 +122,7 @@ export function CheckoutForm({
   const retryable = problem !== null && (problem.status === 0 || problem.status >= 500)
 
   return (
-    <form onSubmit={form.handleSubmit(placeOrder)} noValidate className="space-y-6">
+    <form method="post" onSubmit={form.handleSubmit(placeOrder)} noValidate className="space-y-6">
       <FieldGroup>
         {TEXT_FIELDS.map(({ name, label, autoComplete, placeholder }) => (
           <Controller
@@ -195,7 +198,7 @@ export function CheckoutForm({
         </span>
         <span className="text-base font-semibold tabular-nums">{formatBRL(totals.total)}</span>
       </p>
-      <Button type="submit" size="lg" className="w-full" disabled={form.formState.isSubmitting}>
+      <Button type="submit" size="lg" className="w-full" disabled={!hydrated || form.formState.isSubmitting}>
         {form.formState.isSubmitting ? <Loader2 className="animate-spin" /> : retryable ? <RotateCw /> : null}
         {retryable ? "Retry placing order" : "Place order"}
       </Button>

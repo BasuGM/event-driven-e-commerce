@@ -17,10 +17,9 @@ local run ([limitations-and-roadmap.md](limitations-and-roadmap.md)).
 | Suite | Result |
 |---|---|
 | Backend | **354 passed** (28 test files), 23.2 s |
-| Frontend | **88 passed** (24 test files) |
+| Frontend | **91 passed** (25 test files) |
 | Typecheck | clean |
-| e2e, run 4 | **5 passed**, 5 min 53 s in total |
-| e2e, run 5 | **4 passed, 1 failed**: the open login flake (see [Known gaps](#known-gaps)), 4 min 37 s in total |
+| e2e | **5 of 5 full runs passed** (25/25 tests, no retries), after the navigation fix: 3 min 45 s to 6 min 18 s per run |
 
 ## Backend (pytest)
 
@@ -157,24 +156,24 @@ taken over.
 - no e2e Postgres or Redis volume remained;
 - a deliberately failing spec made `make e2e` exit non-zero.
 
-**Run times:** 4 min 37 s to 8 min 42 s per run. The first run is the slowest, because of
+**A fixed flake.** Before the fix, 3 of 6 full-suite runs on 2026-11-09 failed: a form's navigation
+never completed (the URL stayed on `/login` or `/checkout`). The kept trace showed the cause:
+`router.refresh()` called right after `router.push/replace()` stalled the navigation. The fix
+([auth-and-sessions.md](flows/auth-and-sessions.md#after-an-auth-change-a-full-page-load)) has
+two parts:
+- full page loads after auth changes and checkout;
+- JS-driven controls disabled until hydrated.
+
+Then 5 of 5 full runs passed. The helpers wait for a control to be enabled before typing or
+clicking, and the login helper submits exactly once.
+
+**Run times:** 3 min 45 s to 8 min 42 s per run. The first run is the slowest, because of
 `npm ci` and route compiles. The isolated stack runs the Next **dev** server next to the dev
 stack. A production build would be faster, but changes behaviour
 ([limitations-and-roadmap.md](limitations-and-roadmap.md)).
 
 ## Known gaps
 
-- **An e2e flake, root cause found, fix in progress.** In 3 of 6 full-suite isolated runs on
-  2026-11-09, a form's navigation never completed: twice a login stayed on `/login?next=/shop`,
-  and once a checkout stayed on `/checkout`.
-  - **The cause:** the login, register, logout and checkout forms call `router.push/replace()`
-    and then immediately `router.refresh()`, to re-render the header in the root layout. The
-    checkout trace (kept on the host since the diagnostics change) shows the order created
-    (201), the navigation's RSC request answered (200 after 6.6 s), and the refresh's RSC request
-    still pending after more than 20 s. The URL never changed, and the order page's effects
-    never ran.
-  - **An experiment with full-page loads** removed the stall, but exposed clicks made before
-    hydration. The app fix (controls disabled until hydrated) is in progress.
 - **The payment-after-expiry path is never made to fail partway.** Rollback-on-failure inside the
   webhook's transaction is tested only for the success path
   (`test_a_webhook_that_fails_partway_rolls_back_and_applies_once_on_retry`). For an expired hold,

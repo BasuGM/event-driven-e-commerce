@@ -76,6 +76,27 @@ Step by step, in `checkout()`:
    (`refresh_product_stats_on_commit`). If an offer just sold out, the listing's price and
    in-stock filter are right on the next request.
 
+### After the order is placed: a full page load
+
+On a 201, the checkout form navigates to `/orders/<id>` with a **full page load**
+(`window.location.assign`), not a client-side navigation:
+
+- **The header must change.** The cart was just emptied, and the header's cart badge is a Server
+  Component in the root layout. A client-side navigation reuses the root layout unchanged, so
+  after a soft `router.push` the order page would still show "Cart, 1 item".
+- **The alternative raced.** The form used to call `router.push()` and then immediately
+  `router.refresh()`. On 2026-11-09 a Playwright trace caught that refresh's request pending for
+  more than 20 s while the URL stayed on `/checkout` (the order had been created: `POST` 201).
+- **A full load costs little.** The order page is dynamic anyway (per-visitor data, a live
+  stream).
+- **Regression checks.** The e2e `placeOrder()` helper asserts the header shows a plain "Cart"
+  (empty) on the order page. With the fix undone (a soft navigation, no refresh), that assertion
+  failed on "Cart, 1 item".
+
+"Place order" stays disabled until the form has hydrated, and the form is `method="post"`. An early
+submit used to do a native GET with the shipping address in the URL
+([auth-and-sessions.md](auth-and-sessions.md#before-hydration-disabled-controls-and-post-forms)).
+
 ### Retries can't place two orders
 
 The checkout request carries an `Idempotency-Key`. The browser generates it per attempt in

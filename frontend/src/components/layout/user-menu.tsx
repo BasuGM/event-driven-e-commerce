@@ -2,7 +2,6 @@
 
 import { LogOut, Package, UserRound } from "lucide-react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { useTransition } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -16,23 +15,25 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { browserApi, ensureCsrf } from "@/lib/api/browser"
 import type { User } from "@/lib/api/client"
+import { useHydrated } from "@/lib/use-hydrated"
 
 export function UserMenu({ user }: { user: User }) {
-  const router = useRouter()
   const [pending, startTransition] = useTransition()
+  const hydrated = useHydrated()
 
   const logOut = () =>
     startTransition(async () => {
       await ensureCsrf()
       await browserApi.POST("/api/auth/logout/")
-      router.push("/")
-      router.refresh()
+      // Full page load: the session is gone, so nothing rendered for the user may survive in the
+      // router cache or the header (see LoginForm)
+      window.location.assign("/")
     })
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label={`Account menu for ${user.name}`}>
+        <Button variant="ghost" size="icon" disabled={!hydrated} aria-label={`Account menu for ${user.name}`}>
           <UserRound className="size-4" />
         </Button>
       </DropdownMenuTrigger>
