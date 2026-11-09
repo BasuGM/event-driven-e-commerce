@@ -31,10 +31,19 @@ COPY = {
     ),
     K.REFUND_DUE: (
         "Refund due for order {number}",
-        "We received your payment of {paid} after the order was canceled ({reason}). "
+        "We received your payment of {paid}, {reason}, so we couldn't accept it. "
         "We owe you a refund of {paid}; you don't need to do anything.",
     ),
 }
+
+# PaymentIntent.refund_reason (also in the PaymentRefundDue payload) is an internal string set by
+# apps.payments.services._flag_refund. Emails show customer-facing text instead, never the raw
+# reason; an unmapped reason falls back to a generic sentence.
+REFUND_REASONS = {
+    "paid after the stock hold expired": "but your payment arrived after the stock hold expired",
+    "paid after the order was canceled": "but the order had already been canceled",
+}
+REFUND_REASON_FALLBACK = "but the order could no longer take a payment"
 
 # A refund is also due when a second payment arrives for an order that was already paid (the
 # order isn't canceled then): same subject, different explanation.
@@ -66,7 +75,7 @@ def render(kind: str, payload: dict, *, recipient_name: str) -> tuple[str, str, 
         "number": number,
         "ttl": settings.RESERVATION_TTL_MINUTES,
         "paid": format_brl(payment.get("amount", totals["total"])),
-        "reason": payment.get("refund_reason", ""),
+        "reason": REFUND_REASONS.get(payment.get("refund_reason", ""), REFUND_REASON_FALLBACK),
     }
     context = {
         "subject": subject_t.format(**fmt),

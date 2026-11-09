@@ -135,8 +135,33 @@ def test_a_refund_due_for_a_canceled_order_says_so(events_redis, awaiting_paymen
     consume(events_redis)
 
     refund = Notification.objects.get(kind="refund_due")
-    assert "We received your payment of R$ 154,80 after the order was canceled (" in refund.body_text
+    assert (
+        "We received your payment of R$ 154,80, but the order had already been canceled, "
+        "so we couldn't accept it." in refund.body_text
+    )
+    assert "paid after the order was canceled" not in refund.body_text  # never the raw reason
     assert "already paid" not in refund.body_text
+
+
+@pytest.mark.parametrize("reason, text", [
+    ("paid after the stock hold expired", "but your payment arrived after the stock hold expired"),
+    ("paid after the order was canceled", "but the order had already been canceled"),
+    ("something new we never mapped", "but the order could no longer take a payment"),
+])
+def test_refund_reasons_are_shown_in_customer_terms(placed_order, reason, text):
+    """Stored reasons (PaymentIntent.refund_reason, event payloads) stay as they are; the email
+    maps them, with a generic fallback, and never prints the raw string."""
+    from apps.notifications.rendering import render
+    from apps.orders.events import order_payload
+
+    order, user, _ = placed_order
+    order.status = "canceled"
+    payload = order_payload(order, reason="refund_due", now=timezone.now())
+    payload["payment"] = {"amount": "154.80", "refund_reason": reason}
+    _, body_text, body_html = render("refund_due", payload, recipient_name="Ana")
+
+    assert f"We received your payment of R$ 154,80, {text}, so we couldn't accept it." in body_text
+    assert reason not in body_text and reason not in body_html
 
 
 def test_a_duplicate_or_replayed_event_never_makes_a_second_email(events_redis, placed_order):
