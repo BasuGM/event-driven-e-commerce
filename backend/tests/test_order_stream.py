@@ -270,3 +270,31 @@ def test_the_wsgi_backend_refuses_to_stream(order_of, client):
     client.force_login(user)
     response = client.get(f"/api/orders/{order.external_id}/stream/")
     assert response.status_code == 404
+
+
+def test_a_change_committed_while_subscribing_is_not_missed(order_of, monkeypatch):
+    """The first snapshot must be read *after* subscribing. A change committed between an
+    earlier read and the subscription would otherwise go unnoticed until the next signal, a
+    reconnect or the fallback poll (here: no signal is ever published)."""
+    import redis.asyncio.client as aioredis_client
+
+    user, order = order_of()
+    real_subscribe = aioredis_client.PubSub.subscribe
+    changed = []
+
+    async def subscribe_after_a_change(self, *args, **kwargs):
+        if not changed:  # the change lands just before the subscription takes effect
+            changed.append(True)
+            await sync_to_async(cancel)(order.pk)
+        return await real_subscribe(self, *args, **kwargs)
+
+    monkeypatch.setattr(aioredis_client.PubSub, "subscribe", subscribe_after_a_change)
+
+    async def run():
+        stream = Stream(await open_stream(user, order))
+        await stream.wait_for(lambda s: s.snapshots() and s.snapshots()[-1]["status"] == "canceled")
+        await stream.wait_for(lambda s: s.task.done())  # final: end event, stream closed
+        assert stream.events[-1] == {"event": "end", "data": {}}
+        assert changed
+
+    asyncio.run(run())

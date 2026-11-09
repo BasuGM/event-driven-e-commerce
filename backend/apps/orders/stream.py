@@ -6,7 +6,8 @@ service (uvicorn). An open stream is an idle coroutine, not a worker thread.
     : heartbeat                              every ORDER_STREAM_HEARTBEAT_SECONDS
     event: end                               final state reached: the client stops
 
-The snapshot is sent on connect (unless the client's Last-Event-ID is already that version)
+The snapshot is read and sent on connect, after subscribing (unless the client's Last-Event-ID
+is already that version)
 and again whenever a signal arrives and the version changed. The stream closes after
 ORDER_STREAM_MAX_SECONDS; EventSource then reconnects by itself.
 """
@@ -70,11 +71,12 @@ async def order_stream(request, order_id: str):
     user = await request.auser()
     if not user.is_authenticated:
         return JsonResponse({"detail": "Authentication credentials were not provided."}, status=401)
-    snapshot = await read(user, order_id)
-    if snapshot is None:  # someone else's order (or none): 404, like the order API
+    # Ownership check only (404 before any 200 is sent); the snapshot the client receives is
+    # read again inside the stream, after subscribing.
+    if await read(user, order_id) is None:  # someone else's order (or none): 404, like the order API
         return JsonResponse({"detail": "Not found."}, status=404)
     response = StreamingHttpResponse(
-        event_stream(user, order_id, snapshot, request.headers.get("Last-Event-ID")),
+        event_stream(user, order_id, request.headers.get("Last-Event-ID")),
         content_type="text/event-stream",
     )
     # no-transform: Next's rewrite proxy runs `compression`, which would gzip and buffer the
@@ -84,16 +86,11 @@ async def order_stream(request, order_id: str):
     return response
 
 
-async def event_stream(user, order_id: str, snapshot: dict, last_event_id: str | None) -> AsyncIterator[str]:
+async def event_stream(user, order_id: str, last_event_id: str | None) -> AsyncIterator[str]:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + settings.ORDER_STREAM_MAX_SECONDS
     heartbeat = settings.ORDER_STREAM_HEARTBEAT_SECONDS
     yield f"retry: {settings.ORDER_STREAM_RETRY_MS}\n\n"
-    if snapshot["version"] != last_event_id:  # a reconnect never replays what the client has
-        yield _event(snapshot)
-    if is_final(snapshot):
-        yield END
-        return
 
     client, pubsub = None, None
     try:
@@ -107,6 +104,19 @@ async def event_stream(user, order_id: str, snapshot: dict, last_event_id: str |
         except (redis.RedisError, OSError):
             logger.warning("Order stream %s: Redis unavailable, polling the database", order_id)
             pubsub = None
+
+        # Subscribe first, *then* read the snapshot we send. A change committed before the
+        # subscription is in this read; one committed after it sends us a signal. (Reading
+        # first would miss a change committed in between until the next signal.) A signal for
+        # a change this read already includes is absorbed by the version check below.
+        snapshot = await read(user, order_id)
+        if snapshot is None:  # deleted (or no longer theirs) since the ownership check
+            return
+        if snapshot["version"] != last_event_id:  # a reconnect never replays what the client has
+            yield _event(snapshot)
+        if is_final(snapshot):
+            yield END
+            return
 
         while (remaining := deadline - loop.time()) > 0:
             overdue_in = _seconds_until_overdue(snapshot)

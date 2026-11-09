@@ -331,7 +331,8 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
 - **Versions:** `live_version` = hash of the snapshot fields (also on the order detail API).
   Events go out as `id: <version>`; a reconnect's `Last-Event-ID` equal to the current version
   gets no replay, and an unchanged version is never re-sent.
-- **Lifecycle:** owner only (404 otherwise, 401 anonymous); snapshot on connect, again on each
+- **Lifecycle:** owner only (404 otherwise, 401 anonymous); subscribe first, then read and send
+  the snapshot (so a change committed while connecting isn't missed), again on each
   signal that changes the version; `: heartbeat` every 15 s; wakes at a payment's `overdue_at`
   (no event for that); closes after 300 s (EventSource reconnects) or with `event: end` when
   the order is final (delivered/canceled with no payment pending). `finally` unsubscribes on
