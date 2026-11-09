@@ -36,6 +36,14 @@ COPY = {
     ),
 }
 
+# A refund is also due when a second payment arrives for an order that was already paid (the
+# order isn't canceled then): same subject, different explanation.
+REFUND_DUE_ALREADY_PAID = (
+    "Refund due for order {number}",
+    "We're sorry: a second payment of {paid} was received for an order that was already paid. "
+    "We owe you a refund of {paid}; you don't need to do anything.",
+)
+
 
 def render(kind: str, payload: dict, *, recipient_name: str) -> tuple[str, str, str]:
     order_id = payload["order_id"]
@@ -52,6 +60,8 @@ def render(kind: str, payload: dict, *, recipient_name: str) -> tuple[str, str, 
     totals = payload["totals"]
     payment = payload.get("payment", {})
     subject_t, intro_t = COPY[kind]
+    if kind == K.REFUND_DUE and payload.get("status") != "canceled":
+        subject_t, intro_t = REFUND_DUE_ALREADY_PAID
     fmt = {
         "number": number,
         "ttl": settings.RESERVATION_TTL_MINUTES,

@@ -83,6 +83,62 @@ def test_a_late_payment_gets_a_refund_due_email(events_redis, awaiting_payment, 
     assert "refund of R$ 154,80" in refund.body_text
 
 
+def test_a_second_payment_for_a_paid_order_flags_a_refund_and_one_email(
+    events_redis, awaiting_payment, run_deliveries
+):
+    """Defensive path: the shop never opens a second intent for a paid order (start_payment
+    refuses), but a provider could still deliver a second success. Built directly here."""
+    from apps.events.models import OutboxEvent
+    from apps.fake_provider.gateway import FakeGateway
+    from apps.fake_provider.models import FakeIntent
+    from apps.payments.models import PaymentIntent
+
+    order, first, fake = awaiting_payment
+    run_deliveries(choose(fake, SUCCEED))
+    order.refresh_from_db()
+    assert order.status == "approved"
+    stock = dict(order.reservations.values_list("offer_id", "offer__stock"))
+
+    second = FakeGateway().create_payment(
+        amount=first.amount, currency="BRL", reference=order.external_id,
+        return_url="/", expires_at=None, idempotency_key=f"order:{order.external_id}:second",
+    )
+    intent = PaymentIntent.objects.create(
+        order=order, provider="fake", provider_payment_id=second.id, amount=first.amount,
+    )
+    run_deliveries(choose(FakeIntent.objects.get(pk=second.id), SUCCEED, twice=True))
+
+    order.refresh_from_db()
+    intent.refresh_from_db()
+    assert order.status == "approved"  # untouched
+    assert (intent.status, intent.needs_refund, intent.refund_reason) == ("succeeded", True, "order already approved")
+    assert order.payments.count() == 1  # the ledger has only the first payment
+    assert dict(order.reservations.values_list("offer_id", "offer__stock")) == stock  # stock unchanged
+    assert list(
+        OutboxEvent.objects.filter(aggregate_id=order.external_id).order_by("occurred_at", "id")
+        .values_list("event_type", flat=True)
+    ) == ["OrderPlaced", "OrderPaid", "PaymentRefundDue"]  # the duplicate delivery added nothing
+
+    consume(events_redis)
+    [refund] = Notification.objects.filter(kind="refund_due")
+    assert refund.subject == f"Refund due for order #{order.external_id[:8]}"
+    assert "a second payment of R$ 154,80 was received for an order that was already paid" in refund.body_text
+    assert "after the order was canceled" not in refund.body_text
+    assert "refund of R$ 154,80" in refund.body_text
+
+
+def test_a_refund_due_for_a_canceled_order_says_so(events_redis, awaiting_payment, run_deliveries):
+    order, _, fake = awaiting_payment
+    deliveries = choose(fake, SUCCEED_LATER, delay=60)
+    release_expired(now=timezone.now() + timedelta(hours=1))
+    run_deliveries(deliveries)
+    consume(events_redis)
+
+    refund = Notification.objects.get(kind="refund_due")
+    assert "We received your payment of R$ 154,80 after the order was canceled (" in refund.body_text
+    assert "already paid" not in refund.body_text
+
+
 def test_a_duplicate_or_replayed_event_never_makes_a_second_email(events_redis, placed_order):
     consume(events_redis)
     # The same stream entries again for the same group: ProcessedEvent stops them

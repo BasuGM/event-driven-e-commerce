@@ -220,3 +220,56 @@ def test_race_outcome_is_decided_by_who_holds_the_order_lock(
     run_concurrently(first, second)
 
     assert _check_one_winner(order, intent) == expected
+
+
+def test_a_webhook_that_fails_partway_rolls_back_and_applies_once_on_retry(awaiting_payment, monkeypatch):
+    """A crash after pay() has run must leave nothing behind (one transaction), answer 500 so
+    the provider retries, and the retry must apply the payment exactly once."""
+    from urllib.parse import urlparse
+
+    from rest_framework.test import APIClient
+
+    from apps.fake_provider.models import FakeEvent
+    from apps.fake_provider.provider import deliver
+    from apps.orders.models import Payment
+    from apps.payments import services as payment_services
+
+    order, intent, fake = awaiting_payment
+    stock = dict(order.reservations.values_list("offer_id", "offer__stock"))
+    client = APIClient(raise_request_exception=False)  # see the 500 the provider would see
+
+    def post(url, body, headers):
+        return client.generic(
+            "POST", urlparse(url).path, body, content_type="application/json",
+            HTTP_FAKE_SIGNATURE=headers["Fake-Signature"],
+        ).status_code
+
+    real_apply = payment_services._apply_success
+
+    def crash_after_applying(*args, **kwargs):
+        real_apply(*args, **kwargs)  # order approved, ledger row, OrderPaid recorded ...
+        raise RuntimeError("worker died mid-webhook")  # ... then the process fails
+
+    [delivery] = choose(fake, SUCCEED)
+    event = FakeEvent.objects.get(pk=delivery.event_id)
+
+    monkeypatch.setattr(payment_services, "_apply_success", crash_after_applying)
+    assert deliver(event, post=post) == 500
+
+    # Nothing from the failed attempt survived
+    assert refreshed(order, intent) == ("created", "requires_payment", False)
+    assert not ProviderEvent.objects.exists()  # so the retry isn't mistaken for a duplicate
+    assert not Payment.objects.filter(order=order).exists()
+    assert emitted(order) == ["OrderPlaced"]
+    assert set(order.reservations.values_list("status", flat=True)) == {"active"}
+    assert dict(order.reservations.values_list("offer_id", "offer__stock")) == stock
+
+    # The provider retries the same event: applied once
+    monkeypatch.setattr(payment_services, "_apply_success", real_apply)
+    assert deliver(event, post=post) == 200
+    assert deliver(event, post=post) == 200  # a further retry is a duplicate
+    assert refreshed(order, intent) == ("approved", "succeeded", False)
+    assert emitted(order) == ["OrderPlaced", "OrderPaid"]
+    assert Payment.objects.filter(order=order).count() == 1
+    assert list(ProviderEvent.objects.values_list("outcome", flat=True)) == ["applied"]
+    assert dict(order.reservations.values_list("offer_id", "offer__stock")) == stock  # sold, not released
