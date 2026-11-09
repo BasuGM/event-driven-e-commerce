@@ -5,12 +5,12 @@ const PASSWORD = process.env.E2E_USER_PASSWORD ?? "devpass123"
 // Anything that waits on the Celery worker / consumers (webhooks, email, live updates)
 export const ASYNC_TIMEOUT = 30_000
 
-export async function logIn(page: Page) {
+export async function logIn(page: Page, email = EMAIL, password = PASSWORD) {
   await page.goto("/login?next=/shop")
   // Retry until the (client) form is hydrated and the login goes through
   await expect(async () => {
-    await page.getByLabel("Email").fill(EMAIL)
-    await page.getByLabel("Password").fill(PASSWORD)
+    await page.getByLabel("Email").fill(email)
+    await page.getByLabel("Password").fill(password)
     await page.getByRole("button", { name: "Log in" }).click()
     // Match the pathname, not the whole URL: /\/shop$/ would also match /login?next=/shop
     await expect(page).toHaveURL((url) => url.pathname === "/shop", { timeout: 5_000 })

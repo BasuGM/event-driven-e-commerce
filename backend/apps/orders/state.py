@@ -15,10 +15,11 @@ S = Order.Status
 
 TRANSITIONS: dict[str, frozenset[str]] = {
     S.CREATED: frozenset({S.APPROVED, S.CANCELED}),  # paid / payment failed, expired, customer
-    S.APPROVED: frozenset({S.INVOICED, S.CANCELED}),  # canceled = refund (later step)
+    # canceled = after payment (refund: later step); unavailable = the seller can't fulfil it
+    S.APPROVED: frozenset({S.INVOICED, S.CANCELED, S.UNAVAILABLE}),
     S.INVOICED: frozenset({S.SHIPPED}),
     S.SHIPPED: frozenset({S.DELIVERED}),
-    # delivered and canceled are terminal; Olist's processing/unavailable are historical only
+    # delivered, canceled and unavailable are terminal; Olist's processing is historical only
 }
 
 # Timestamp columns stamped when an order enters a status
@@ -50,5 +51,7 @@ def transition(order: Order, to_status: str, reason: str, *, now: datetime | Non
         setattr(order, column, now)
         fields.append(column)
     order.save(update_fields=fields)
-    OrderStatusHistory.objects.create(order=order, from_status=from_status, to_status=to_status, reason=reason)
+    OrderStatusHistory.objects.create(
+        order=order, from_status=from_status, to_status=to_status, reason=reason, occurred_at=now
+    )
     return order

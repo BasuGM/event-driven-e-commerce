@@ -36,6 +36,12 @@ class IdempotencyConflict(DomainError):
     code = "idempotency_conflict"
 
 
+class ReplayReadOnly(DomainError):
+    """Replayed orders are moved only by the replay; their owner can watch, not act."""
+
+    code = "replay_read_only"
+
+
 class EmptyCart(DomainError):
     status_code = 400
     code = "empty_cart"

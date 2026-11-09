@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # What a live page needs to re-render (the same values the order detail API returns)
 SNAPSHOT_FIELDS = ("status", "status_history", "payment", "can_pay", "can_cancel", "reservation_expires_at")
-FINAL_STATUSES = frozenset({"delivered", "canceled"})
+FINAL_STATUSES = frozenset({"delivered", "canceled", "unavailable"})
 
 
 def snapshot_version(data: dict) -> str:

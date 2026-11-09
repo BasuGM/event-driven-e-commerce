@@ -55,6 +55,8 @@ backend/
   apps/staff/       staff-only API: event log, order timelines, consumer health, DLQ retry
   apps/analytics/   projection tables, projections.py (set-based recompute), queries.py
                     (dashboard), backfill_analytics command
+  apps/replay/      ReplayRun; services.py (plan, copies, Runner, reset); replay_orders and
+                    replay_reset commands (dev/test only)
   tests/            pytest suite; tests/fixtures/olist/ = tiny CSVs incl. messy rows
 frontend/src/
   app/              App Router pages (+ loading.tsx / error.tsx per data view);
@@ -108,6 +110,8 @@ with other local services; containers always talk to each other on the default p
 | `make events-logs` | Follow the relay, consumers and stream (SSE) logs        |
 | `make mail`       | Print the Mailpit URL (every email the app sends lands there) |
 | `make analytics-backfill` | Rebuild the analytics projections from orders (also run by `make seed`) |
+| `make replay`     | Replay imported orders as live events (default Black Friday week 2017, `--speed 10`; `ARGS="--from … --to … --speed … --limit … --dry-run"`) |
+| `make replay-reset` | Delete replayed orders and everything they produced (`ARGS="--run N"`) |
 
 `make up` also starts the Celery `worker` and `beat` services (see their logs with
 `docker compose logs -f worker beat`), the event `relay` and `consumers` services and the
@@ -133,7 +137,7 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   Olist IDs, `update_or_create` or bulk upserts).
 - `--size small` = a consistent subset (~2,000 orders plus every related customer, seller,
   product, item, payment and review). `--size large` = everything.
-- Seed known dev accounts (admin, staff, customer) from a dev-only fixture. Never in
+- Seed known dev accounts (admin, staff, customer, replay) from a dev-only fixture. Never in
   production settings.
 - Raw CSVs live in `data/olist/` and are gitignored. If they are missing, the import command
   must fail with a clear message telling me where to download them. The importer reads
@@ -149,9 +153,11 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   `search_vector`) are denormalised and recomputed by `apps/catalog/stats.py` at the end of
   every import with set-based SQL. Anything that changes offers, reviews, order items or a
   product's name/category must refresh them.
-- `Order.source`: `olist` (the importer) or `app` (`checkout()`), required (no default, so a new
-  creation path can't forget it); `replay` comes with the replay step. Analytics reports every
-  metric per source.
+- `Order.source`: `olist` (the importer), `app` (`checkout()`) or `replay` (copies made by
+  `apps/replay`), required (no default, so a new creation path can't forget it). Analytics
+  reports every metric per source. **Replay copies never count for the shop:** `OFFERS_SQL`
+  (prices) and `SALES_SQL` (`sales_count`) exclude `source='replay'`, as does the public orders
+  count; the `product_stats` and `notifications` consumers skip replay events.
 - `sales_count` / `first_sold_at` only count units on orders that aren't `canceled` or
   `unavailable` (unpaid orders count until they're canceled or expire). After an import the SQL
   applies it directly; in the order flow the `product_stats` consumer keeps it current.
@@ -241,9 +247,15 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   happens at most once even under races.
 - Order status changes only through `apps/orders/state.transition()` (explicit table, writes
   `OrderStatusHistory`, requires the locked order). Illegal moves → `InvalidTransition` → 409.
+  Table: created → approved | canceled; approved → invoiced | canceled | unavailable;
+  invoiced → shipped; shipped → delivered (`processing` is historical only). Fulfilment
+  services `invoice` / `ship` / `deliver` / `mark_unavailable` / `cancel_paid` lock the order
+  and check + transition in one transaction (no stock moves: it stayed sold at payment). Only
+  the replay calls them so far; **`cancel_paid` and `mark_unavailable` refuse non-replay
+  orders** (`InvalidTransition`): a real paid cancellation needs a refund + restock design.
 - Domain errors (`apps/core/errors.py`) are plain exceptions mapped to `{code, detail, …}` by the
   DRF exception handler: `out_of_stock` (with `lines`), `reservation_expired`,
-  `invalid_transition`, `idempotency_conflict` (409) and `empty_cart` (400).
+  `invalid_transition`, `idempotency_conflict`, `replay_read_only` (409) and `empty_cart` (400).
 - Unsafe, non-repeatable endpoints take an `Idempotency-Key` header (`run_idempotent`): keys are
   per user, stored with a request hash and the successful response in the same transaction,
   expire after 24 h. Same key → replay; same key + different body → 409; failures aren't stored.
@@ -347,11 +359,13 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
 ## Events (outbox → relay → Redis Streams → consumers)
 
 - **Write:** services call `record_event()` (`apps/events/outbox.py`) inside the transaction
-  that makes the change — never in views or signals. Rollback = no event. Order events:
-  `OrderPlaced`, `OrderPaid`, `PaymentFailed`, `OrderCanceled` (customer), `ReservationExpired`
-  (`source`: `sweeper` or `payment_attempt`); payload = order id, user id, status, reason,
-  lines (offer/product id + slug, seller, quantity, unit price/freight), totals. Money as
-  decimal strings. Bump `schema_version` for breaking payload changes.
+  that makes the change — never in views or signals. Rollback = no event. Order events
+  (`ORDER_EVENTS`): `OrderPlaced`, `OrderPaid`, `PaymentFailed`, `OrderCanceled` (customer, or
+  after payment), `ReservationExpired` (`source`: `sweeper` or `payment_attempt`),
+  `OrderInvoiced`, `OrderShipped`, `OrderDelivered`, `OrderUnavailable`; payload = order id,
+  user id, `order_source` (+ `replay_run`), status, reason, lines (offer/product id + slug,
+  seller, quantity, unit price/freight), totals. Money as decimal strings. Bump
+  `schema_version` for breaking payload changes (additive fields don't).
 - **Relay** (`run_relay`, compose `relay`): batches of unpublished rows with
   `FOR UPDATE SKIP LOCKED`, XADD to `events:<aggregate_type>` (entry carries the event id), then
   stamps `published_at`. Stops at the first Redis error (never skips), records
@@ -405,7 +419,10 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   part may reveal it: `app/staff/layout.tsx` gives every `/staff/*` page the neutral title
   "Olist Commerce" + robots `noindex, nofollow`; the real "<Page> · Staff · …" title is set
   client-side by `DocumentTitle` inside the staff header, i.e. only after the staff check.
-  Staff pages export no `metadata` title of their own.
+  Staff pages export no `metadata` title of their own. Next re-writes the metadata `<title>`
+  whenever a metadata tree commits (every `router.refresh()`, and streamed metadata can land
+  after mount), so `DocumentTitle` keeps a MutationObserver on `<head>` while mounted (layout
+  effect, so it disconnects before the next page's title). e2e: `staff-title.spec.ts`.
 - Pages: `/staff/events` (filters: type, aggregate id, date range; URL = state via
   `lib/staff-params.ts`; payload as JSON), `/staff/orders/<id>` (the order's events in order,
   each with the consumers that should process it and when they did, from ProcessedEvent),
@@ -454,6 +471,62 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
 - Updates while open with a gentle poll (`router.refresh()` every 10 s while the tab is visible),
   not SSE: projections change in bursts (hundreds per second during a replay), so a stream would
   need coalescing, and a dashboard isn't latency-critical.
+
+## Replay (historical orders as live events)
+
+- `replay_orders --from --to [--limit] [--speed S] [--dry-run]` (`make replay`; dev/test only,
+  `ALLOW_DEV_SEED`): selects imported orders by Sao Paulo purchase day and re-enacts each as a
+  **copy** (`source='replay'`, `replay_of` = original, `replay_run` = the `ReplayRun`, owned by
+  `replay@example.com`, the buyer's city/state/zip, items and estimated date copied).
+- Steps per order: place (purchased) → approve (`approved_at`, through the real `pay()`: ledger
+  row + `OrderPaid`) → invoice → ship (carrier date) → deliver, or → unavailable / cancel.
+  Olist has no invoiced/canceled/unavailable times: synthesized (approved + 1 h; invoice before
+  pickup); out-of-order Olist dates are clamped so time never goes back. Olist `processing`
+  stays approved; the one order canceled after shipping is canceled right after approval
+  (shipped → canceled is illegal), reported by the command.
+- All orders' steps are merged by time and applied on a simulated clock: sleep
+  `gap × speed / 86400` s, at most 2 s per gap (`--speed` = real seconds per simulated day,
+  0 = no waits). Every step is a real service call (transition + history + outbox event), so
+  relay, consumers, SSE, explorer and dashboard see a real flow. Historical times go into the
+  order columns, the payload's `occurred_at` and `OrderStatusHistory.occurred_at` (the same
+  `now`; `created_at` stays the recording time); outbox/EventLog times stay real. The order
+  page's History shows `occurred_at` with the year for replay copies, `created_at` otherwise.
+- **Idempotent, resumable:** a step applies only while the copy is in that step's from-status;
+  `uniq_replay_copy` (unique `replay_of`) allows one copy per original. SIGINT/SIGTERM sets a
+  stop flag: the current step finishes, the run is saved `interrupted`; re-running the range
+  resumes without duplicates. Each step's service locks the copy (`select_for_update`) and
+  re-checks its status in the transaction that transitions, so even two runners over the same
+  orders apply every step once (one Payment, one OrderPaid per copy; tested concurrently).
+- **One running replay at a time:** `start_run()` relies on the partial unique index
+  `one_running_replay` (status='running'), not a read-then-insert, so two processes starting at
+  once can't both win. A run saves `heartbeat_at` at least every 30 s; a `running` run silent
+  for 5 min (`STALE_AFTER`: its process died) is marked `failed` and taken over by the next
+  `replay_orders` or `replay_reset`. A live run is refused (stop it with Ctrl-C). Every
+  runner write (heartbeat, progress, final status) is `UPDATE … WHERE id=? AND
+  status='running'`; 0 rows = taken over, so a frozen-then-resumed runner stops before its next
+  step (the heartbeat check runs at the top of the loop) and never overwrites `failed`.
+  `replay_reset --force` skips the running and backlog checks (last resort).
+- **Bypassed, on purpose:** cart/checkout and reservations (would drain real stock; history was
+  fulfilled long ago), the payment provider/webhooks/PaymentIntent, emails. Stock never moves.
+- **Only the replay moves a replay order:** the sweeper excludes `source='replay'` (copies have
+  no reservations anyway); `can_pay`/`can_cancel` are false and cancel/payment/return answer
+  409 `replay_read_only`. The order page shows a "Replayed historical order" note.
+- `replay_reset [--run N] [--force]` (`make replay-reset`): deletes copies (cascade: items,
+  ledger, history) and their outbox / EventLog / ProcessedEvent / Notification rows and runs,
+  rebuilds the affected `(day, 'replay')` projections, refreshes product stats. Refuses while a
+  live run is `running` or the order stream has unprocessed entries (in-flight events would be
+  logged again after their orders are gone). Stream entries stay (acked; trimmed eventually).
+  The staff explorer reads only EventLog/ProcessedEvent, so a reset order's timeline is just
+  empty, and an event logged after its order was deleted (forced reset) still renders.
+- `Order.replay_of` is PROTECT, so deleting an imported order that has a copy fails loudly.
+  Nothing deletes orders today: the importer only upserts (verified with copies present:
+  0 new rows, offers/stats unchanged), and `make reset` drops the whole schema.
+- Throughput (dev laptop, 2,000 orders / 9,896 events at `--speed 0`): the replay writes ~90
+  events/s (one transaction per step); relay, event_log, order_live and product_stats keep up
+  (p95 < 1.1 s). **`analytics` is the bottleneck** at ~64 events/s (each event re-aggregates
+  its whole purchase day): lag peaked ~4,000 entries, p95 75 s, drained ~45 s after the replay
+  ended. Fine at `--speed` ≥ 1 (see Known issues). Replay analytics totals equal the imported
+  ones (orders, paid, GMV).
 
 ## UI rules
 
@@ -521,6 +594,13 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
 - Redis persists streams with AOF `appendfsync everysec`: a hard crash can lose up to ~1 s of
   events the outbox already marked published. Streams are trimmed (`MAXLEN ~ 100000`); a
   consumer group lagging further than that would miss events.
+
+- The `analytics` consumer recomputes an order's whole purchase day per event (~64 events/s),
+  so it lags during a `--speed 0` replay. Fix when needed: recompute each distinct (day, source)
+  once per read batch (coalesce the batch's events) instead of once per event.
+
+- Replay timestamps for invoiced/canceled/unavailable are synthesized (Olist has none), and one
+  Olist order canceled after shipping is replayed as canceled after approval.
 
 - `redis` (redis-py) is pinned to 6.4.0: `kombu[redis]` (Celery's transport) requires `<6.5`.
   It was 8.1.0 in Steps 1–2, used only for the health check.

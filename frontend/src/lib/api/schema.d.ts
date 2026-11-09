@@ -559,9 +559,10 @@ export interface components {
          *     * `invalid_transition` - invalid_transition
          *     * `idempotency_conflict` - idempotency_conflict
          *     * `empty_cart` - empty_cart
+         *     * `replay_read_only` - replay_read_only
          * @enum {string}
          */
-        CodeEnum: "out_of_stock" | "reservation_expired" | "invalid_transition" | "idempotency_conflict" | "empty_cart";
+        CodeEnum: "out_of_stock" | "reservation_expired" | "invalid_transition" | "idempotency_conflict" | "empty_cart" | "replay_read_only";
         ConsumerStatus: {
             name: string;
             /**
@@ -582,7 +583,7 @@ export interface components {
             gmv: string;
         };
         Dashboard: {
-            source: components["schemas"]["SourceEnum"];
+            source: components["schemas"]["DashboardSourceEnum"];
             /** Format: date */
             date_from: string;
             /** Format: date */
@@ -600,6 +601,14 @@ export interface components {
             by_state: components["schemas"]["StateRow"][];
             delivery_by_week: components["schemas"]["DeliveryWeek"][];
         };
+        /**
+         * @description * `all` - all
+         *     * `olist` - olist
+         *     * `app` - app
+         *     * `replay` - replay
+         * @enum {string}
+         */
+        DashboardSourceEnum: "all" | "olist" | "app" | "replay";
         DeadLetterRetry: {
             readonly dlq_entry_id: string;
             readonly event_id: string;
@@ -757,6 +766,7 @@ export interface components {
          */
         OrderDetail: {
             id: string;
+            readonly source: components["schemas"]["OrderDetailSourceEnum"];
             readonly status: components["schemas"]["OrderStatusEnum"];
             /** Format: date-time */
             readonly purchased_at: string;
@@ -781,6 +791,13 @@ export interface components {
             /** @description Version of the live snapshot fields (see /stream/) */
             readonly live_version: string;
         };
+        /**
+         * @description * `olist` - Olist
+         *     * `app` - App
+         *     * `replay` - Replay
+         * @enum {string}
+         */
+        OrderDetailSourceEnum: "olist" | "app" | "replay";
         OrderLine: {
             product_slug: string;
             product_name: string;
@@ -992,14 +1009,6 @@ export interface components {
             /** @description CEP, e.g. 01310-100 */
             zip_code: string;
         };
-        /**
-         * @description * `all` - all
-         *     * `olist` - olist
-         *     * `app` - app
-         *     * `replay` - replay
-         * @enum {string}
-         */
-        SourceEnum: "all" | "olist" | "app" | "replay";
         StaffDeadLetter: {
             entry_id: string;
             event_id: string | null;
@@ -1085,6 +1094,8 @@ export interface components {
             readonly reason: string;
             /** Format: date-time */
             readonly created_at: string;
+            /** Format: date-time */
+            readonly occurred_at: string;
         };
         TimelineEvent: {
             /** Format: uuid */

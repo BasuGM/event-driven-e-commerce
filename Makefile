@@ -7,7 +7,7 @@ DB := $(COMPOSE) exec -T db
 -include .env
 export
 
-.PHONY: require-env up down reset migrate seed seed-large snapshot restore test test-backend test-frontend typecheck e2e types backfill-sales events-logs mail analytics-backfill
+.PHONY: require-env up down reset migrate seed seed-large snapshot restore test test-backend test-frontend typecheck e2e types backfill-sales events-logs mail analytics-backfill replay replay-reset
 
 require-env:
 	@test -f .env || { echo "Missing .env. Run: cp .env.example .env"; exit 1; }
@@ -45,6 +45,15 @@ seed-large: require-env
 # Rebuild the analytics projections from orders (the importer emits no events)
 analytics-backfill: require-env
 	$(BACKEND) python manage.py backfill_analytics
+
+# Replay imported orders as live events. Override with e.g.
+#   make replay ARGS="--from 2018-01-01 --to 2018-01-07 --speed 2 --limit 500"
+REPLAY_ARGS ?= --from 2017-11-20 --to 2017-11-30 --speed 10
+replay: require-env
+	$(BACKEND) python manage.py replay_orders $(if $(ARGS),$(ARGS),$(REPLAY_ARGS))
+
+replay-reset: require-env
+	$(BACKEND) python manage.py replay_reset $(ARGS)
 
 snapshot: require-env
 	$(DB) pg_dump -U $(POSTGRES_USER) -d $(POSTGRES_DB) -Fc \

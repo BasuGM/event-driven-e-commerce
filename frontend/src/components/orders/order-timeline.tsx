@@ -11,24 +11,39 @@ const REASONS: Record<string, string> = {
   payment_failed: "Payment failed, stock released",
   reservation_expired: "Not paid in time, stock released",
   customer_canceled: "Canceled by you, stock released",
+  invoiced: "Invoice issued",
+  shipped: "Handed to the carrier",
+  delivered: "Delivered to you",
+  unavailable: "The seller couldn't fulfil it",
+  canceled_after_payment: "Canceled after payment",
+  // historical replay (apps/replay)
+  replay_placed: "Order placed (replay)",
+  canceled_before_payment: "Canceled before payment",
 }
 
 // Rendered on the server: pin the zone (the store is Brazilian) instead of the server's UTC.
-const timeFormatter = new Intl.DateTimeFormat("en-GB", {
+const TIME_OPTIONS: Intl.DateTimeFormatOptions = {
   day: "numeric",
   month: "short",
   hour: "2-digit",
   minute: "2-digit",
   timeZone: "America/Sao_Paulo",
   timeZoneName: "short",
-})
+}
+const timeFormatter = new Intl.DateTimeFormat("en-GB", TIME_OPTIONS)
+const historicalFormatter = new Intl.DateTimeFormat("en-GB", { ...TIME_OPTIONS, year: "numeric" })
 
-/** Vertical timeline built from the order's status history (the audit trail). */
-export function OrderTimeline({ history }: { history: OrderDetail["status_history"] }) {
+/**
+ * Vertical timeline built from the order's status history (the audit trail). ``historical``
+ * (replay copies) shows each step's domain time (``occurred_at``: the Olist time, years ago),
+ * with the year, so it matches "Placed …"; other orders show when it was recorded, as before.
+ */
+export function OrderTimeline({ history, historical = false }: { history: OrderDetail["status_history"]; historical?: boolean }) {
+  const format = historical ? historicalFormatter : timeFormatter
   return (
     <ol className="relative space-y-6 border-l pl-6">
       {history.map((entry, i) => {
-        const canceled = entry.to_status === "canceled"
+        const canceled = entry.to_status === "canceled" || entry.to_status === "unavailable"
         const Icon = canceled ? XCircle : i === history.length - 1 ? CheckCircle2 : Circle
         return (
           <li key={`${entry.to_status}-${entry.created_at}`} className="relative">
@@ -42,7 +57,9 @@ export function OrderTimeline({ history }: { history: OrderDetail["status_histor
             <p className="text-sm font-medium">{STATUS_LABELS[entry.to_status as keyof typeof STATUS_LABELS]}</p>
             <p className="text-xs text-muted-foreground">
               {REASONS[entry.reason] ?? entry.reason.replace(/_/g, " ")} ·{" "}
-              <time dateTime={entry.created_at}>{timeFormatter.format(new Date(entry.created_at))}</time>
+              <time dateTime={historical ? entry.occurred_at : entry.created_at}>
+                {format.format(new Date(historical ? entry.occurred_at : entry.created_at))}
+              </time>
             </p>
           </li>
         )

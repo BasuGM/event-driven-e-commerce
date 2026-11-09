@@ -44,8 +44,9 @@ Olist has no product names, prices or stock, so the import generates them determ
 
 ## Dev login
 
-`make reset` / `make seed` create three dev-only accounts — `admin@example.com` (superuser),
-`staff@example.com` and `customer@example.com` — all with the password `DEV_USER_PASSWORD` from
+`make reset` / `make seed` create four dev-only accounts — `admin@example.com` (superuser),
+`staff@example.com`, `customer@example.com` and `replay@example.com` (owns replayed orders, see
+"Replay") — all with the password `DEV_USER_PASSWORD` from
 `.env` (default `devpass123`). Log in on the site with the email; the Django admin accepts the
 username (`admin`).
 
@@ -81,3 +82,24 @@ Upgrading an existing checkout: add the `# --- Events ---`, `# --- Payments ---`
 `# --- Email ---` blocks from `.env.example` to your `.env` (set `FRONTEND_PUBLIC_URL` to your
 frontend port), run `make up && make migrate`, then `make backfill-sales` once (older data counted
 canceled orders as sales).
+
+## Replay (dev)
+
+Replays imported Olist orders through the real order lifecycle — placed, paid, invoiced,
+shipped, delivered (or canceled / unavailable) — as live events, on a simulated clock:
+
+1. `make replay` replays Black Friday week 2017 (85 orders, ~420 events) at 10 s per simulated
+   day; quiet gaps wait at most 2 s, so it takes about 3–4 minutes. Pick your own range with
+   `make replay ARGS="--from 2018-01-01 --to 2018-01-07 --speed 2"` (`--limit N`, `--speed 0` =
+   no waiting, `--dry-run` = print the plan only).
+2. As `staff@example.com`, watch **Staff → Events** (filter e.g. `OrderShipped`), **Health**
+   (consumer lag) and **Analytics** (source: Replayed).
+3. Log in as `replay@example.com`, open one of its orders and watch it move live. Replayed
+   orders are read-only: no Pay or Cancel.
+4. `make replay-reset` deletes every replayed order and everything it produced (events, event
+   log, analytics rows). `ARGS="--run N"` removes one run only.
+
+Ctrl-C stops after the current step; running the same range again resumes. One replay runs at
+a time; if a replay's process died (no progress for 5 minutes), the next `make replay` or
+`make replay-reset` takes over automatically (`make replay-reset ARGS=--force` is the last resort). The shop is
+unaffected: no stock moves, and sales counts, prices and emails ignore replayed orders.

@@ -36,6 +36,8 @@ class NotificationsConsumer(Consumer):
 
     def handle(self, event: Event) -> None:
         payload = event.payload
+        if order_events.is_replay(payload):
+            return  # no email for replayed history (thousands of orders)
         user = get_user_model().objects.filter(pk=payload.get("user_id")).first()
         if user is None or not user.email:
             logger.info("notifications: no email for event %s (user %s), skipped", event.id, payload.get("user_id"))

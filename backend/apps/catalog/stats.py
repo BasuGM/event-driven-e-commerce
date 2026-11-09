@@ -51,8 +51,11 @@ WITH pairs AS (
         p.external_id AS product_ext,
         s.external_id AS seller_ext
     FROM orders_orderitem oi
+    JOIN orders_order o ON o.id = oi.order_id
     JOIN catalog_product p ON p.id = oi.product_id
     JOIN catalog_seller s ON s.id = oi.seller_id
+    -- Replay copies (apps/replay) repeat historical items: they must not move prices
+    WHERE o.source <> 'replay'
     GROUP BY oi.product_id, oi.seller_id, p.external_id, s.external_id
 )
 INSERT INTO catalog_offer (product_id, seller_id, price, freight, stock)
@@ -83,6 +86,7 @@ FROM (
         FROM orders_orderitem oi
         JOIN orders_order o ON o.id = oi.order_id
         WHERE o.status NOT IN ('canceled', 'unavailable')
+          AND o.source <> 'replay'  -- replayed copies of history aren't sales
     ) sold ON sold.product_id = p.id
     {scope}
     GROUP BY p.id

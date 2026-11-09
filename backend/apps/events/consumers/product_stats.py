@@ -6,7 +6,7 @@ from __future__ import annotations
 from django.db import connection
 
 from apps.catalog.stats import apply_product_stats, lock_products
-from apps.orders.events import ORDER_EVENTS
+from apps.orders.events import ORDER_EVENTS, is_replay
 
 from ..consumer import Consumer
 from ..outbox import record_event
@@ -21,6 +21,8 @@ class ProductStatsConsumer(Consumer):
     event_types = ORDER_EVENTS
 
     def handle(self, event: Event) -> None:
+        if is_replay(event.payload):
+            return  # replay copies are excluded from the stats SQL: nothing would change
         lines = event.payload.get("lines", [])
         ids = sorted({line["product_id"] for line in lines})
         if not ids:

@@ -9,9 +9,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.catalog.pagination import StrictPageNumberPagination
+from apps.core.errors import ReplayReadOnly
 from apps.core.idempotency import run_idempotent
 
 from . import services
+from .models import Order
 from .selectors import order_detail, orders_with_totals
 from .serializers import (
     CheckoutSerializer,
@@ -84,6 +86,17 @@ class OrderMixin:
             raise Http404
         return order
 
+    def get_actionable_order(self, request, order_id: str):
+        """For endpoints that change the order: replay copies refuse (409)."""
+        order = self.get_order(request, order_id)
+        refuse_replay(order)
+        return order
+
+
+def refuse_replay(order) -> None:
+    if order.source == Order.Source.REPLAY:
+        raise ReplayReadOnly("This is a replayed historical order: only the replay moves it.")
+
 
 class OrderDetailView(OrderMixin, APIView):
     @extend_schema(summary="One of your orders", responses=OrderDetailSerializer)
@@ -102,6 +115,6 @@ class OrderCancelView(OrderMixin, APIView):
         responses={200: OrderDetailSerializer, 409: DomainErrorSerializer},
     )
     def post(self, request, order_id: str):
-        order = self.get_order(request, order_id)
+        order = self.get_actionable_order(request, order_id)
         services.cancel(order.pk)
         return Response(_detail(request, order))

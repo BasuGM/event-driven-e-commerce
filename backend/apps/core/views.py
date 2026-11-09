@@ -48,7 +48,7 @@ class StatsView(APIView):
     def get(self, request):
         data = {
             "products": Product.objects.count(),
-            "orders": Order.objects.count(),
+            "orders": Order.objects.exclude(source=Order.Source.REPLAY).count(),  # not replay copies
             "customers": Customer.objects.count(),
             "sellers": Seller.objects.count(),
         }

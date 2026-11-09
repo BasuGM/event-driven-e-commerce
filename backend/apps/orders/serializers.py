@@ -46,7 +46,10 @@ class DomainErrorSerializer(serializers.Serializer):
     """Body of every 409 (and empty-cart 400) from the order flow."""
 
     code = serializers.ChoiceField(
-        choices=["out_of_stock", "reservation_expired", "invalid_transition", "idempotency_conflict", "empty_cart"]
+        choices=[
+            "out_of_stock", "reservation_expired", "invalid_transition", "idempotency_conflict", "empty_cart",
+            "replay_read_only",
+        ]
     )
     detail = serializers.CharField()
     lines = ErrorLineSerializer(many=True, required=False)
@@ -59,7 +62,9 @@ class StatusHistorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OrderStatusHistory
-        fields = ["from_status", "to_status", "reason", "created_at"]
+        # created_at = when it was recorded; occurred_at = the domain time (= created_at for app
+        # orders, the historical Olist time for replay copies)
+        fields = ["from_status", "to_status", "reason", "created_at", "occurred_at"]
         read_only_fields = fields
 
 
@@ -142,7 +147,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            "id", "status", "purchased_at", "approved_at", "lines", "item_count", "items_total",
+            "id", "source", "status", "purchased_at", "approved_at", "lines", "item_count", "items_total",
             "freight_total", "total", "shipping", "status_history", "reservation_expires_at",
             "can_pay", "can_cancel", "payments_enabled", "payment", "live_version",
         ]
@@ -181,6 +186,8 @@ class OrderDetailSerializer(serializers.ModelSerializer):
         return intents[0] if intents else None
 
     def get_can_pay(self, order) -> bool:
+        if order.source == Order.Source.REPLAY:  # only the replay moves these
+            return False
         if order.status != Order.Status.CREATED or self._expired(order):
             return False
         # While the provider's confirmation is pending, paying again would only confuse things;
@@ -189,7 +196,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
         return intent is None or not intent.awaiting_webhook()
 
     def get_can_cancel(self, order) -> bool:
-        return order.status == Order.Status.CREATED
+        return order.status == Order.Status.CREATED and order.source != Order.Source.REPLAY
 
     def get_payments_enabled(self, order) -> bool:
         return payments_enabled()

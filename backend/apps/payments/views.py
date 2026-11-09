@@ -10,7 +10,8 @@ from rest_framework.views import APIView
 
 from apps.orders.selectors import orders_with_totals
 from apps.orders.serializers import DomainErrorSerializer
-from apps.orders.views import OrderMixin
+from apps.core.errors import ReplayReadOnly
+from apps.orders.views import OrderMixin, refuse_replay
 
 from .gateway import get_gateway, payments_enabled
 from .services import handle_webhook, mark_returned, start_payment
@@ -31,7 +32,7 @@ class OrderPaymentView(OrderMixin, APIView):
     def post(self, request, order_id: str):
         if not payments_enabled():
             raise Http404
-        order = self.get_order(request, order_id)
+        order = self.get_actionable_order(request, order_id)
         intent = start_payment(order, return_url=f"/api/orders/{order.external_id}/payment/return/")
         return Response(PaymentStartSerializer({"redirect_url": intent.redirect_url, "status": intent.status}).data)
 
@@ -46,6 +47,10 @@ def payment_return(request, order_id: str):
     order = orders_with_totals(request.user).filter(external_id=order_id).first()
     if order is None:
         raise Http404
+    try:
+        refuse_replay(order)
+    except ReplayReadOnly as exc:  # a plain Django view: no DRF exception handler here
+        return JsonResponse(exc.payload(), status=exc.status_code)
     mark_returned(order)
     return HttpResponseRedirect(order_path)
 

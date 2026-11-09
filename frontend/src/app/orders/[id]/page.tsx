@@ -37,7 +37,7 @@ export default function OrderPage({ params }: PageProps<"/orders/[id]">) {
 
 /** Mirrors apps/orders/live.is_final: nothing more will happen, so no live connection. */
 function isFinal(order: { status: string; payment: { status: string } | null }) {
-  return ["delivered", "canceled"].includes(order.status) && order.payment?.status !== "processing"
+  return ["delivered", "canceled", "unavailable"].includes(order.status) && order.payment?.status !== "processing"
 }
 
 async function Order({ params }: { params: PageProps<"/orders/[id]">["params"] }) {
@@ -72,6 +72,16 @@ async function Order({ params }: { params: PageProps<"/orders/[id]">["params"] }
           <OrderStatusBadge status={order.status} />
         </div>
       </div>
+
+      {order.source === "replay" && (
+        <Alert>
+          <AlertTitle>Replayed historical order</AlertTitle>
+          <AlertDescription>
+            A copy of an Olist order from {formatDate(order.purchased_at)}, moved through its history by the replay. You
+            can watch it update here; only the replay changes it.
+          </AlertDescription>
+        </Alert>
+      )}
 
       <OrderLive orderId={order.id} version={order.live_version} enabled={!isFinal(order)} />
       <PaymentConfirmation payment={order.payment} />
@@ -138,7 +148,7 @@ async function Order({ params }: { params: PageProps<"/orders/[id]">["params"] }
               <CardTitle>History</CardTitle>
             </CardHeader>
             <CardContent>
-              <OrderTimeline history={order.status_history} />
+              <OrderTimeline history={order.status_history} historical={order.source === "replay"} />
             </CardContent>
           </Card>
         </div>

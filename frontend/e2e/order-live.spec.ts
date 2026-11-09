@@ -7,12 +7,13 @@ test("pay with a delayed webhook: 'Payment in progress' survives a reload, then 
   await emptyCart(page)
   const orderId = await placeOrder(page)
 
-  // Pay on the provider's page; the success webhook is delivered 60 s later (10 s was flaky:
-  // a slow dev-server render around the reload could use the whole window)
+  // Pay on the provider's page; the success webhook is delivered 30 s later. That window must
+  // cover the in-progress checks and a reload: 10 s was flaky (slow dev-server renders of 8-12 s
+  // each); after the reload the test just waits for the live update, never the whole window.
   await page.getByRole("button", { name: /^Pay R\$/ }).click()
   await expect(page).toHaveURL((url) => url.pathname.startsWith("/api/fake-provider/pay/pi_"))
   await page.getByRole("radio", { name: /deliver the webhook after a delay/ }).check()
-  await page.getByRole("combobox", { name: "Delay" }).selectOption("60")
+  await page.getByRole("combobox", { name: "Delay" }).selectOption("30")
   await page.getByRole("button", { name: /^Pay R\$/ }).click()
 
   // Back on the order page: "processing" is stored server-side ...
@@ -38,7 +39,7 @@ test("pay with a delayed webhook: 'Payment in progress' survives a reload, then 
   await expect(inProgress).toBeDisabled()
   await expect(page.getByText("Confirming your payment…")).toBeVisible()
 
-  await expect(page.getByTestId("order-status")).toHaveText("Approved", { timeout: ASYNC_TIMEOUT + 60_000 })
+  await expect(page.getByTestId("order-status")).toHaveText("Approved", { timeout: ASYNC_TIMEOUT + 30_000 })
   await expect(page.getByText("Payment received")).toBeVisible()
   await expect(inProgress).toHaveCount(0)
 

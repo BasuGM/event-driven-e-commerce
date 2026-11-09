@@ -146,7 +146,7 @@ def checkout(user, address: ShippingAddress, *, now: datetime | None = None) -> 
             Reservation(offer_id=line.offer_id, order=order, quantity=line.quantity, expires_at=expires_at)
             for line in lines
         )
-        order.status_history.create(from_status="", to_status=Order.Status.CREATED, reason="checkout")
+        order.status_history.create(from_status="", to_status=Order.Status.CREATED, reason="checkout", occurred_at=now)
         events.record_order_event(events.ORDER_PLACED, order, reason="checkout", now=now)
         cart.items.all().delete()
         refresh_product_stats_on_commit(offer.product_id for offer in offers.values())
@@ -262,6 +262,55 @@ def cancel(order_id: int, *, reason: str = "customer_canceled", now: datetime | 
     return order
 
 
+# --- fulfilment (after payment) ----------------------------------------------------------------
+# No stock moves here: it was kept at payment. Only the replay calls these so far.
+
+
+def _advance(
+    order_id: int, to_status: str, event_type: str, reason: str, now: datetime | None, *, replay_only: bool = False
+) -> Order:
+    """Lock the order, then transition: the status check and the change happen under the row
+    lock in one transaction, so two concurrent callers can't both apply the same step."""
+    now = now or timezone.now()
+    with transaction.atomic():
+        order = lock_order(order_id)
+        if replay_only and order.source != Order.Source.REPLAY:
+            raise InvalidTransition(
+                f"'{to_status}' after payment needs a refund and restocking flow, which doesn't exist "
+                "yet; only replayed orders can take it.",
+                current_status=order.status,
+            )
+        transition(order, to_status, reason, now=now)  # illegal moves raise InvalidTransition
+        events.record_order_event(event_type, order, reason=reason, now=now)
+    return order
+
+
+def invoice(order_id: int, *, now: datetime | None = None) -> Order:
+    return _advance(order_id, Order.Status.INVOICED, events.ORDER_INVOICED, "invoiced", now)
+
+
+def ship(order_id: int, *, now: datetime | None = None) -> Order:
+    """Handed to the carrier (stamps delivered_carrier_at)."""
+    return _advance(order_id, Order.Status.SHIPPED, events.ORDER_SHIPPED, "shipped", now)
+
+
+def deliver(order_id: int, *, now: datetime | None = None) -> Order:
+    """Delivered to the customer (stamps delivered_customer_at)."""
+    return _advance(order_id, Order.Status.DELIVERED, events.ORDER_DELIVERED, "delivered", now)
+
+
+def mark_unavailable(order_id: int, *, reason: str = "unavailable", now: datetime | None = None) -> Order:
+    """A paid order the seller can't fulfil. Replayed orders only, until a refund/restock design
+    exists (a real one would owe the customer money)."""
+    return _advance(order_id, Order.Status.UNAVAILABLE, events.ORDER_UNAVAILABLE, reason, now, replay_only=True)
+
+
+def cancel_paid(order_id: int, *, reason: str = "canceled_after_payment", now: datetime | None = None) -> Order:
+    """Cancel an approved (paid) order. Replayed orders only, until a refund/restock design
+    exists; stock stays sold, like Olist's history."""
+    return _advance(order_id, Order.Status.CANCELED, events.ORDER_CANCELED, reason, now, replay_only=True)
+
+
 # --- expiry sweeper --------------------------------------------------------------------------
 
 
@@ -279,6 +328,9 @@ def release_expired(*, now: datetime | None = None, limit: int = 100) -> int:
             reservations__status=Reservation.Status.ACTIVE,
             reservations__expires_at__lte=now,
         )
+        # Replay copies never hold reservations, so they can't match anyway; excluded explicitly
+        # so the guarantee "only the replay moves a replay order" doesn't hinge on that detail.
+        .exclude(source=Order.Source.REPLAY)
         .values_list("id", flat=True)
         .distinct()
         .order_by("id")[:limit]

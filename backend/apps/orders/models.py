@@ -20,6 +20,7 @@ class Order(models.Model):
     class Source(models.TextChoices):
         OLIST = "olist"  # imported historical orders (the importer)
         APP = "app"  # placed in this app (checkout)
+        REPLAY = "replay"  # a copy of an imported order, replayed live (apps/replay)
 
     external_id = models.CharField(max_length=32, unique=True)
     # Where the order came from; analytics reports every metric per source
@@ -43,8 +44,22 @@ class Order(models.Model):
     shipping_zip = models.CharField(max_length=9, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True, null=True)
 
+    # Replay copies only (source=replay): the run that created it and the historical original
+    replay_run = models.ForeignKey(
+        "replay.ReplayRun", null=True, blank=True, on_delete=models.PROTECT, related_name="orders"
+    )
+    replay_of = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="replay_copies"
+    )
+
     class Meta:
         ordering = ["-purchased_at"]
+        constraints = [
+            # At most one replay copy per historical order: re-running a replay resumes it
+            models.UniqueConstraint(
+                fields=["replay_of"], condition=models.Q(replay_of__isnull=False), name="uniq_replay_copy"
+            ),
+        ]
         indexes = [
             models.Index(fields=["purchased_at"]),
             # Also serves status-only filters (leftmost column), so no separate status index
@@ -131,6 +146,9 @@ class OrderStatusHistory(models.Model):
     to_status = models.CharField(max_length=20, choices=Order.Status.choices)
     reason = models.CharField(max_length=50)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Domain time of the transition: the same value as the event payload's occurred_at. Equals
+    # created_at for app orders; for replay copies it's the historical (Olist) time.
+    occurred_at = models.DateTimeField()
 
     class Meta:
         ordering = ["created_at", "id"]

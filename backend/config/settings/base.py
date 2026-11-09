@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     "apps.notifications",
     "apps.staff",
     "apps.analytics",
+    "apps.replay",
 ]
 
 MIDDLEWARE = [

@@ -9,7 +9,7 @@ from apps.core.formatting import format_brl
 from .models import FakeIntent
 from .provider import FAIL, SUCCEED, SUCCEED_LATER, PaymentExpired, choose
 
-DELAYS = [("10", "10 seconds"), ("60", "1 minute"), ("after_expiry", "After the stock hold expires")]
+DELAYS = [("10", "10 seconds"), ("30", "30 seconds"), ("60", "1 minute"), ("after_expiry", "After the stock hold expires")]
 
 
 @require_http_methods(["GET", "POST"])

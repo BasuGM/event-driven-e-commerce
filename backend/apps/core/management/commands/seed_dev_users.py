@@ -9,11 +9,13 @@ DEV_USERS = [
     ("admin", "Ada", "Admin", True, True),
     ("staff", "Sam", "Staff", True, False),
     ("customer", "Carla", "Costa", False, False),
+    # Owns every replayed order (apps/replay): log in as it to watch a replay live
+    ("replay", "Rita", "Replay", False, False),
 ]
 
 
 class Command(BaseCommand):
-    help = "Create or refresh the dev-only accounts admin / staff / customer."
+    help = "Create or refresh the dev-only accounts admin / staff / customer / replay."
 
     def handle(self, *args, **options):
         if not getattr(settings, "ALLOW_DEV_SEED", False):

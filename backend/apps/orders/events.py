@@ -16,7 +16,20 @@ ORDER_PAID = "OrderPaid"
 PAYMENT_FAILED = "PaymentFailed"  # the order is canceled and its stock released
 ORDER_CANCELED = "OrderCanceled"  # by the customer
 RESERVATION_EXPIRED = "ReservationExpired"  # source: "sweeper" or "payment_attempt"
-ORDER_EVENTS = frozenset({ORDER_PLACED, ORDER_PAID, PAYMENT_FAILED, ORDER_CANCELED, RESERVATION_EXPIRED})
+# Fulfilment (only the replay drives these so far; there's no seller/ops UI yet)
+ORDER_INVOICED = "OrderInvoiced"
+ORDER_SHIPPED = "OrderShipped"
+ORDER_DELIVERED = "OrderDelivered"
+ORDER_UNAVAILABLE = "OrderUnavailable"  # approved, then the seller couldn't fulfil it
+ORDER_EVENTS = frozenset({
+    ORDER_PLACED, ORDER_PAID, PAYMENT_FAILED, ORDER_CANCELED, RESERVATION_EXPIRED,
+    ORDER_INVOICED, ORDER_SHIPPED, ORDER_DELIVERED, ORDER_UNAVAILABLE,
+})
+
+
+def is_replay(payload: dict) -> bool:
+    """Events of replayed orders (consumers that must not affect the shop skip these)."""
+    return payload.get("order_source") == Order.Source.REPLAY
 
 
 def order_payload(order: Order, *, reason: str, now: datetime, source: str | None = None) -> dict:
@@ -51,6 +64,9 @@ def order_payload(order: Order, *, reason: str, now: datetime, source: str | Non
     payload = {
         "order_id": order.external_id,
         "user_id": order.customer.user_id,
+        # Additive (schema_version stays 1). "source" is taken: it says what expired a reservation
+        "order_source": order.source,
+        "replay_run": order.replay_run_id,
         "status": order.status,
         "reason": reason,
         "occurred_at": now,

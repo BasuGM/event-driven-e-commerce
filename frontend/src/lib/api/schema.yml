@@ -923,6 +923,7 @@ components:
       - invalid_transition
       - idempotency_conflict
       - empty_cart
+      - replay_read_only
       type: string
       description: |-
         * `out_of_stock` - out_of_stock
@@ -930,6 +931,7 @@ components:
         * `invalid_transition` - invalid_transition
         * `idempotency_conflict` - idempotency_conflict
         * `empty_cart` - empty_cart
+        * `replay_read_only` - replay_read_only
     ConsumerStatus:
       type: object
       properties:
@@ -974,7 +976,7 @@ components:
       type: object
       properties:
         source:
-          $ref: '#/components/schemas/SourceEnum'
+          $ref: '#/components/schemas/DashboardSourceEnum'
         date_from:
           type: string
           format: date
@@ -1019,6 +1021,18 @@ components:
       - kpis
       - last_day
       - source
+    DashboardSourceEnum:
+      enum:
+      - all
+      - olist
+      - app
+      - replay
+      type: string
+      description: |-
+        * `all` - all
+        * `olist` - olist
+        * `app` - app
+        * `replay` - replay
     DeadLetterRetry:
       type: object
       properties:
@@ -1364,6 +1378,10 @@ components:
       properties:
         id:
           type: string
+        source:
+          allOf:
+          - $ref: '#/components/schemas/OrderDetailSourceEnum'
+          readOnly: true
         status:
           allOf:
           - $ref: '#/components/schemas/OrderStatusEnum'
@@ -1439,9 +1457,20 @@ components:
       - purchased_at
       - reservation_expires_at
       - shipping
+      - source
       - status
       - status_history
       - total
+    OrderDetailSourceEnum:
+      enum:
+      - olist
+      - app
+      - replay
+      type: string
+      description: |-
+        * `olist` - Olist
+        * `app` - App
+        * `replay` - Replay
     OrderLine:
       type: object
       properties:
@@ -1919,18 +1948,6 @@ components:
       - state
       - street
       - zip_code
-    SourceEnum:
-      enum:
-      - all
-      - olist
-      - app
-      - replay
-      type: string
-      description: |-
-        * `all` - all
-        * `olist` - olist
-        * `app` - app
-        * `replay` - replay
     StaffDeadLetter:
       type: object
       properties:
@@ -2141,9 +2158,14 @@ components:
           type: string
           format: date-time
           readOnly: true
+        occurred_at:
+          type: string
+          format: date-time
+          readOnly: true
       required:
       - created_at
       - from_status
+      - occurred_at
       - reason
       - to_status
     TimelineEvent:
