@@ -7,7 +7,7 @@ DB := $(COMPOSE) exec -T db
 -include .env
 export
 
-.PHONY: require-env up down reset migrate seed seed-large snapshot restore test test-backend test-frontend typecheck e2e types backfill-sales events-logs mail analytics-backfill replay replay-reset
+.PHONY: require-env up down reset migrate seed seed-large snapshot restore test test-backend test-frontend typecheck e2e types backfill-sales events-logs mail analytics-backfill replay replay-reset docs-check
 
 require-env:
 	@test -f .env || { echo "Missing .env. Run: cp .env.example .env"; exit 1; }
@@ -95,3 +95,7 @@ mail: require-env
 types: require-env
 	$(COMPOSE) exec -T backend python manage.py spectacular --validate > frontend/src/lib/api/schema.yml
 	$(FRONTEND) npm run types
+
+# Links, anchors, images and code references in README.md and docs/ (standard-library Python)
+docs-check: require-env
+	python3 scripts/docs_check.py

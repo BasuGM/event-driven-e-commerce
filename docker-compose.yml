@@ -101,7 +101,8 @@ services:
       redis:
         condition: service_healthy
 
-  # Event consumers (product_stats, cache_invalidation), one thread each; SIGTERM = graceful stop.
+  # Event consumers (product_stats, cache_invalidation, notifications, order_live, event_log,
+  # analytics), one thread each; SIGTERM = graceful stop.
   consumers:
     build: ./backend
     env_file: .env

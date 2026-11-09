@@ -75,6 +75,8 @@ frontend/src/
   lib/checkout-attempt.ts  idempotency keys for checkout (reuse on retry)
   lib/shop-params.ts  URL search params <-> shop filters (the only translation layer)
 frontend/e2e/       Playwright smoke tests (run.sh is the e2e container entry point)
+docs/           Human docs: architecture, data model, API, flows/, adr/, operations/ (README links in)
+scripts/        docs_check.py (make docs-check)
 data/olist/     Raw Olist CSVs, directly in this folder (gitignored, never committed)
 data/snapshots/ Postgres dumps of a seeded DB (gitignored)
 docker-compose.yml
@@ -112,6 +114,7 @@ with other local services; containers always talk to each other on the default p
 | `make analytics-backfill` | Rebuild the analytics projections from orders (also run by `make seed`) |
 | `make replay`     | Replay imported orders as live events (default Black Friday week 2017, `--speed 10`; `ARGS="--from … --to … --speed … --limit … --dry-run"`) |
 | `make replay-reset` | Delete replayed orders and everything they produced (`ARGS="--run N"`) |
+| `make docs-check` | Check README.md + docs/: links, anchors, images and code references resolve (pending docs listed in `scripts/docs_pending.txt`) |
 
 `make up` also starts the Celery `worker` and `beat` services (see their logs with
 `docker compose logs -f worker beat`), the event `relay` and `consumers` services and the
@@ -256,9 +259,11 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
 - Domain errors (`apps/core/errors.py`) are plain exceptions mapped to `{code, detail, …}` by the
   DRF exception handler: `out_of_stock` (with `lines`), `reservation_expired`,
   `invalid_transition`, `idempotency_conflict`, `replay_read_only` (409) and `empty_cart` (400).
-- Unsafe, non-repeatable endpoints take an `Idempotency-Key` header (`run_idempotent`): keys are
-  per user, stored with a request hash and the successful response in the same transaction,
+- Only `POST /api/checkout/` takes an `Idempotency-Key` header (required; `run_idempotent`): keys
+  are per user, stored with a request hash and the successful response in the same transaction,
   expire after 24 h. Same key → replay; same key + different body → 409; failures aren't stored.
+  Payment start needs no key: the partial unique index `uniq_open_intent_per_order` allows one
+  open `PaymentIntent` per order, so a repeated click reuses it.
 - Celery: `release_expired_reservations` every minute (each order in its own transaction,
   `SKIP LOCKED`, idempotent) and a daily idempotency-key purge.
 - `ALLOW_FAKE_PAYMENTS` (dev/test only) enables the fake payment provider (hosted page, webhook
@@ -563,6 +568,8 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
 
 ## Before deploying (not done yet — required for any non-local environment)
 
+- Replace `manage.py runserver` (the `backend` service's dev server) with a production WSGI
+  server (gunicorn or similar), and serve static files properly.
 - Rate-limit `POST /api/auth/login/` and `/register/` (e.g. per IP + per email).
 - `SESSION_COOKIE_SECURE = True`, `CSRF_COOKIE_SECURE = True`, HTTPS only (HSTS).
 - `CSRF_TRUSTED_ORIGINS` = the real `https://` origin(s) only; `ALLOWED_HOSTS` likewise.

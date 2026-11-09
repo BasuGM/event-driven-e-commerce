@@ -1,0 +1,20 @@
+# Documents a later docs batch will write. Links to them are reported as "pending" by
+# scripts/docs_check.py instead of failing. Remove each line when its document lands; delete
+# this file when the docs phase is done.
+docs/flows/olist-import.md
+docs/flows/catalog-and-search.md
+docs/flows/auth-and-sessions.md
+docs/flows/cart-checkout-stock.md
+docs/flows/payments.md
+docs/flows/notifications.md
+docs/flows/event-pipeline.md
+docs/flows/live-tracking.md
+docs/flows/analytics.md
+docs/flows/replay.md
+docs/flows/staff-tools.md
+docs/flows
+docs/adr
+docs/testing.md
+docs/limitations-and-roadmap.md
+docs/operations/runbook.md
+docs/interview-guide.md
