@@ -206,10 +206,13 @@ order.
 | Success for an order that's already approved (a second payment, a defensive path: `start_payment` never opens one) | No transition, stock and ledger unchanged; refund flagged, with the email explaining a second payment | `test_a_second_payment_for_a_paid_order_flags_a_refund_and_one_email` |
 
 **Why a decline cancels the order** instead of leaving it open for another attempt:
-`TODO(why)`. Neither CLAUDE.md nor the code records the reason; the test only says "Our rule: a
-decline cancels the order". The effect is that a declined customer's stock is returned
-immediately and they place a new order to try again. A later success for the canceled order is
-refunded, as described below.
+- **The stock is released at once,** instead of being held for up to 15 minutes.
+- **The order never gets stuck** in `created` with a failed payment.
+- **Retrying means checking out again,** which already exists and is tested.
+
+The trade-off: a mistyped card means checking out again, where Stripe would let the customer
+retry the same payment intent. A later success for the canceled order is refunded, as described
+below.
 
 ### Refund due
 
