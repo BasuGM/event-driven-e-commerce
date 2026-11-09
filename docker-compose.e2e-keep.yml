@@ -1,0 +1,25 @@
+# Added by scripts/e2e.sh only with KEEP_E2E=1: the kept e2e stack's frontend is reachable from
+# the host at http://localhost:3101 (the browser origin must then be trusted for CSRF).
+
+x-keep-django-env: &keep-django-env
+  POSTGRES_DB: ecommerce_e2e
+  POSTGRES_HOST: db
+  FRONTEND_PUBLIC_URL: http://localhost:3101
+  CSRF_TRUSTED_ORIGINS: http://localhost:3101,http://frontend:3000
+
+services:
+  frontend:
+    ports:
+      - "3101:3000"
+  backend:
+    environment: *keep-django-env
+  worker:
+    environment: *keep-django-env
+  beat:
+    environment: *keep-django-env
+  stream:
+    environment: *keep-django-env
+  relay:
+    environment: *keep-django-env
+  consumers:
+    environment: *keep-django-env

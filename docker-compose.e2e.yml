@@ -1,0 +1,46 @@
+# Override for the isolated e2e stack: `make e2e` runs scripts/e2e.sh, which uses
+#   docker compose -p ecommerce-e2e -f docker-compose.yml -f docker-compose.e2e.yml
+# A separate compose project = its own containers, network and (prefixed) volumes, so the dev
+# stack's database, Redis and Mailpit are never touched. Nothing here publishes a host port.
+
+x-e2e-django-env: &e2e-django-env
+  # environment: wins over env_file (.env sets POSTGRES_DB=ecommerce for the dev stack)
+  POSTGRES_DB: ecommerce_e2e
+  POSTGRES_HOST: db
+  FRONTEND_PUBLIC_URL: http://frontend:3000
+
+services:
+  db:
+    ports: !reset []
+    environment:
+      POSTGRES_DB: ecommerce_e2e
+    # No named volume and no snapshot mount: the data lives on tmpfs, so every new container
+    # starts empty (fresh seed each run, nothing to drop).
+    volumes: !override []
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  redis:
+    ports: !reset []
+    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    volumes: !override []
+
+  mailpit:
+    ports: !reset []
+
+  backend:
+    ports: !reset []
+    environment: *e2e-django-env
+  worker:
+    environment: *e2e-django-env
+  beat:
+    environment: *e2e-django-env
+  stream:
+    environment: *e2e-django-env
+  relay:
+    environment: *e2e-django-env
+  consumers:
+    environment: *e2e-django-env
+
+  frontend:
+    ports: !reset []
