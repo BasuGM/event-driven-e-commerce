@@ -30,6 +30,31 @@ if [ "${KEEP_E2E:-}" = "1" ]; then
 fi
 dc() { docker compose -p "$PROJECT" $FILES "$@"; }
 
+# One run at a time: a second run's first step (`down`) would tear down the first run's stack.
+# Lock = an atomic mkdir in e2e-results/ holding the owner's PID (macOS has no flock); a lock
+# whose PID is gone is stale and taken over. Checked BEFORE the cleanup trap is installed, so a
+# refused run never touches the other run's containers.
+LOCK="e2e-results/.e2e-lock"
+mkdir -p e2e-results
+refuse() { echo "e2e: REFUSED: $*" >&2; exit 4; }
+if ! mkdir "$LOCK" 2>/dev/null; then
+  holder=$(cat "$LOCK/pid" 2>/dev/null || true)
+  if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+    refuse "another e2e run (pid $holder) holds the $PROJECT project. Wait for it to finish, or stop it first."
+  fi
+  echo "e2e: removing a stale lock (pid ${holder:-unknown} is gone)"
+  rm -rf "$LOCK"
+  mkdir "$LOCK" 2>/dev/null || refuse "another e2e run took the lock just now."
+fi
+echo $$ > "$LOCK/pid"
+release_lock() { [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"; }
+# No lock holder, but containers are up: a kept stack (KEEP_E2E=1) or a run started by an older
+# version of this script. Don't tear it down from here.
+if [ -n "$(docker ps -q --filter "label=com.docker.compose.project=$PROJECT")" ]; then
+  release_lock
+  refuse "containers of the $PROJECT project are already running (a kept stack, or another run). Remove them with 'make e2e-down' first."
+fi
+
 started=$(date +%s)
 phase() { echo "e2e: [$(( $(date +%s) - started ))s] $*"; }
 
@@ -41,6 +66,7 @@ cleanup() {
     phase "tearing down the e2e stack"
     dc --profile e2e down --remove-orphans >/dev/null 2>&1
   fi
+  release_lock
   phase "done, exit $rc"
   exit "$rc"
 }
@@ -160,4 +186,13 @@ else
   dc --profile e2e run --rm e2e || status=$?
 fi
 phase "Playwright exited with $status"
+if [ "$status" -ne 0 ]; then
+  # The containers are removed on exit: keep their logs next to the Playwright traces
+  logs="e2e-results/logs-$(date -u +%Y%m%dT%H%M%SZ)"
+  mkdir -p "$logs"
+  for service in frontend backend stream; do
+    dc logs --no-color --timestamps "$service" > "$logs/$service.log" 2>&1
+  done
+  phase "saved frontend/backend/stream logs to $logs"
+fi
 exit "$status"

@@ -23,7 +23,8 @@ real Olist Brazilian E-Commerce dataset so there is realistic data from day one.
 - **Tests:** pytest + pytest-django (backend), Vitest (frontend unit), Playwright (e2e smoke, in
   its own Docker image via `make e2e`, against a separate compose project seeded fresh each run:
   `scripts/e2e.sh` + `docker-compose.e2e.yml`; it checks, statically and then live on every
-  Django service, that the database in use is `ecommerce_e2e` before anything writes)
+  Django service, that the database in use is `ecommerce_e2e` before anything writes; one run at
+  a time; Playwright output and failure logs kept on the host in `e2e-results/`)
 - **Local dev:** Docker Compose; everything starts with one command
 
 ## Repo layout
@@ -107,7 +108,7 @@ with other local services; containers always talk to each other on the default p
 | `make test-backend`  | Run only the backend tests (pytest)                    |
 | `make test-frontend` | Run only the frontend tests (Vitest)                   |
 | `make typecheck`  | `tsc --noEmit` inside the frontend container              |
-| `make e2e`        | Playwright smoke tests on an **isolated** stack (compose project `ecommerce-e2e`, own DB `ecommerce_e2e` on tmpfs, Redis, Mailpit; seeded fresh, torn down after). Never touches the dev DB. `ARGS="e2e/shop.spec.ts"`; `KEEP_E2E=1` leaves it up on http://localhost:3101 |
+| `make e2e`        | Playwright smoke tests on an **isolated** stack (compose project `ecommerce-e2e`, own DB `ecommerce_e2e` on tmpfs, Redis, Mailpit; seeded fresh, torn down after). Never touches the dev DB. One run at a time (lock `e2e-results/.e2e-lock`; refuses while another run or a kept stack is up). Traces/videos/HTML report and, on failure, frontend/backend/stream logs land in `e2e-results/` (gitignored). `ARGS="e2e/shop.spec.ts"` (Playwright args pass through, e.g. `--repeat-each 3`); `KEEP_E2E=1` leaves it up on http://localhost:3101 |
 | `make e2e-down`   | Remove a kept e2e stack (`KEEP_E2E=1`)                    |
 | `make types`      | Regenerate OpenAPI schema and the TS client               |
 | `make migrate`    | Apply migrations                                          |
@@ -618,11 +619,14 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   memory pressure (cold on the first run: `npm ci` + compiles). `scripts/e2e.sh` warms every route
   the specs enter before Playwright starts. Possible follow-up: run e2e against a production build
   (`next build && next start`) — faster, but it changes behaviour (no dev compiles, prerendering).
-- **Flaky e2e login (open):** in 2 of 5 isolated runs on 2026-11-09 one customer login
-  (`logIn()` in `e2e/helpers.ts`) never left `/login?next=/shop` within its 90 s retry window
-  (run 1: `staff-title.spec.ts` non-staff test, last spec; run 5: `checkout.spec.ts`, first spec,
-  after every route had been warmed — so not route compilation). Root cause unknown: the
-  Playwright trace is lost with the `--rm` container.
+- **Flaky e2e navigation (root cause found, fix pending):** the login, register, logout and
+  checkout forms call `router.push/replace(target)` and immediately `router.refresh()` (to
+  re-render the root layout's header). When that refresh's RSC request stalls on the busy dev
+  server, the navigation never completes: the URL stays on `/login` or `/checkout` and the new
+  page's effects never run (trace 2026-11-09: checkout POST 201, navigation RSC 200, refresh RSC
+  pending > 20 s, no URL change; the two login failures had the same symptom, no trace). Seen in
+  3 of 6 full-suite isolated runs on 2026-11-09. A full-load experiment
+  removed it but exposed clicks before hydration; the fix is in progress.
 
 - `redis` (redis-py) is pinned to 6.4.0: `kombu[redis]` (Celery's transport) requires `<6.5`.
   It was 8.1.0 in Steps 1–2, used only for the health check.

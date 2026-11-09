@@ -149,10 +149,14 @@ services:
       E2E_USER_EMAIL: customer@example.com
       E2E_USER_PASSWORD: ${DEV_USER_PASSWORD:-devpass123}
       MAILPIT_URL: http://mailpit:8025
+      # Traces, videos and the HTML report land on the host (gitignored e2e-results/)
+      PLAYWRIGHT_OUTPUT_DIR: /e2e-results/test-results
+      PLAYWRIGHT_REPORT_DIR: /e2e-results/report
     command: ["sh", "e2e/run.sh"]
     volumes:
       - ./frontend:/app
       - e2e_node_modules:/app/node_modules
+      - ./e2e-results:/e2e-results
     depends_on:
       - frontend
 

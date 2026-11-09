@@ -28,3 +28,6 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 coverage/
+
+# Playwright results from `make e2e` (traces, videos, HTML report)
+e2e-results/
