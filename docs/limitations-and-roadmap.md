@@ -15,6 +15,7 @@ ideas, not commitments.
 | One Redis instance serves Celery, the event streams and Pub/Sub | A single point of failure: if Redis is down, there's no task delivery, no event delivery and no live updates (the outbox keeps the events, and the stream service polls the database) | The outbox and the database fallbacks keep the data correct | Separate or replicated Redis instances ([ADR 0001](adr/0001-redis-streams-over-kafka.md)) |
 | Streams are trimmed to ~100,000 entries (`MAXLEN ~`) | A consumer group lagging further than that would miss entries | Lag is visible per group on `/staff/health` | A larger `MAXLEN`, alerting on lag, or a log with retention (Kafka, see [ADR 0001](adr/0001-redis-streams-over-kafka.md)) |
 | The `analytics` consumer recomputes a whole purchase day per event | ~64 events/s; during a `--speed 0` replay, p95 latency 74.67 s (measured 2026-11-09) | Fine with real traffic and replays at `--speed` ≥ 1 | Coalesce each read batch to its distinct (day, source) pairs ([flows/analytics.md](flows/analytics.md#performance)) |
+| `product_stats` records `ProductsChanged` for every non-replay order event with lines, even when neither `sales_count` nor `min_price` changed | Every placement, payment or cancel of a product revalidates its cached page, so the busiest product pages, the ones caching helps most, get revalidated almost constantly | Revalidating is harmless (the next visit just fetches fresh data), and the listing isn't cached, so only the product page's cache hit rate suffers | Record `ProductsChanged` only for products whose values actually changed, comparing before and after in the recompute's own transaction ([flows/catalog-and-search.md](flows/catalog-and-search.md#invalidation-when-stock-or-sales-change)) |
 | Live updates use Redis Pub/Sub, which is fire-and-forget | A stream that's briefly unsubscribed misses a signal | The signal carries no state: the next signal, a reconnect (≤ 300 s), or the fallback poll restores the right state | — (by design) |
 | One Redis Pub/Sub connection per open order stream | Connections grow with open pages | Fine at this scale | One shared subscriber per `stream` process (pattern `live:order:*`), fanning out to per-connection queues |
 | Only the order detail page is live | `/orders` status badges update on reload only | — | A per-user channel |
@@ -83,18 +84,22 @@ exists.
 1. **CI:** run `make test` and `make e2e` on every push.
 2. **Analytics batch coalescing:** removes the pipeline's bottleneck
    ([flows/analytics.md](flows/analytics.md#performance)).
-3. **Refunds and paid cancellation:** turn `needs_refund` into an actual refund, and allow
+3. **`ProductsChanged` only on a real change:** `product_stats` compares the products' values
+   before and after its recompute, in the same transaction, and records the event only for the
+   ones that changed. Busy product pages then stay cached between real changes
+   ([ADR 0017](adr/0017-cache-invalidation-by-consumer.md)).
+4. **Refunds and paid cancellation:** turn `needs_refund` into an actual refund, and allow
    cancelling paid app orders with restock ([flows/payments.md](flows/payments.md#refund-due)).
-4. **A real payment provider:** one more `PaymentGateway` class
+5. **A real payment provider:** one more `PaymentGateway` class
    ([ADR 0005](adr/0005-fake-payment-provider.md)).
-5. **An inventory consumer and back-in-stock alerts:** emit an "OfferStockChanged" event from
+6. **An inventory consumer and back-in-stock alerts:** emit an "OfferStockChanged" event from
    `services.py`, where every stock change happens ([ADR 0009](adr/0009-no-inventory-consumer.md)).
-6. **Per-user live channels:** live status on `/orders`.
-7. **A shared Pub/Sub subscriber** per `stream` process.
-8. **Rate limiting** on login and register (also on the production checklist).
-9. **e2e on a production build:** faster, with the behaviour change noted above.
-10. **Meilisearch,** when search quality or catalog size calls for it.
-11. **A "republish outbox events since T" command:** re-sends published outbox rows (kept for
+7. **Per-user live channels:** live status on `/orders`.
+8. **A shared Pub/Sub subscriber** per `stream` process.
+9. **Rate limiting** on login and register (also on the production checklist).
+10. **e2e on a production build:** faster, with the behaviour change noted above.
+11. **Meilisearch,** when search quality or catalog size calls for it.
+12. **A "republish outbox events since T" command:** re-sends published outbox rows (kept for
     7 days) to recover from lost stream entries. Consumers dedupe by event id, so re-sending
     events they already applied is harmless.
 

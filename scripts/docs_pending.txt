@@ -1,4 +1,3 @@
 # Documents a later docs batch will write. Links to them are reported as "pending" by
 # scripts/docs_check.py instead of failing. Remove each line when its document lands; delete
 # this file when the docs phase is done.
-docs/interview-guide.md
