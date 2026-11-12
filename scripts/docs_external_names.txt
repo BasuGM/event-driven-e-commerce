@@ -28,6 +28,19 @@ nextval
 pg_blocking_pids
 pg_get_constraintdef
 
+# Celery settings and APIs (not set or used in this repo; the tutorials explain the defaults)
+CELERY_TASK_ACKS_LATE
+Task.retry
+acks_late
+task_acks_late
+task_reject_on_worker_lost
+
+# Stripe PaymentIntent statuses (an external example of a state machine)
+requires_action
+requires_capture
+requires_confirmation
+requires_payment_method
+
 # Django APIs (when the fully qualified django.… form would be unreadable)
 DB_CASCADE
 DB_SET_DEFAULT

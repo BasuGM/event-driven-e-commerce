@@ -83,6 +83,36 @@ line in each. Label them, so the steps "in S1" and "in S2" are easy to follow:
 Some exercises create a scratch table (named `lab_…`). It lives only in the lab database, and
 `make lab-down` throws it away with everything else.
 
+### Calling the lab API with curl
+
+Some exercises call the API as a logged-in customer, the way the browser does: same-origin
+through the lab's Next proxy (port 3101), with the session and CSRF cookies in a cookie jar, and
+the CSRF token echoed in `X-CSRFToken` on every unsafe request
+([auth-and-sessions.md](../flows/auth-and-sessions.md)). Paste this once per terminal
+(POSIX shell; replace the password if your `.env` changes `DEV_USER_PASSWORD`):
+
+```sh
+LAB=http://localhost:3101
+JAR=$(mktemp)
+csrf() { awk '$6 == "csrftoken" { print $7 }' "$JAR"; }   # re-read every time: login rotates it
+api() {                                  # api METHOD PATH [JSON-BODY] [extra curl args...]
+  method=$1 path=$2 body=${3-}
+  if [ $# -ge 3 ]; then shift 3; else shift $#; fi
+  curl -s -b "$JAR" -c "$JAR" -X "$method" "$LAB$path" \
+    -H "Origin: $LAB" -H "X-CSRFToken: $(csrf)" -H 'Content-Type: application/json' \
+    ${body:+--data "$body"} "$@"
+}
+SHIPPING='{"shipping": {"full_name": "Ana Souza", "street": "Av. Paulista, 1000", "city": "São Paulo", "state": "SP", "zip_code": "01310-100"}}'
+
+api GET /api/auth/csrf/ >/dev/null
+api POST /api/auth/login/ '{"email": "customer@example.com", "password": "devpass123"}'
+```
+
+The login answers with the user (`"email":"customer@example.com"`). The third argument is always
+the body: for a request without one but with extra curl options, pass `''` first, as in
+`api POST /api/orders/<id>/cancel/ '' -i` (`-i` prints the status line and headers). An in-stock offer id for the
+cart comes from the lab database: `SELECT id FROM catalog_offer WHERE stock > 0 ORDER BY id LIMIT 1;`.
+
 ## B. The dev database, read-only
 
 ```sh

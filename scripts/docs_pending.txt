@@ -1,11 +1,6 @@
 # Documents a later docs batch will write. Links to them are reported as "pending" by
 # scripts/docs_check.py instead of failing. Remove each line when its document lands; delete
 # this file when the docs phase is done.
-docs/concepts/idempotency.md
-docs/concepts/coordination-advisory-locks-and-leases.md
-docs/concepts/state-machines.md
-docs/concepts/delivery-guarantees.md
-docs/concepts/transactional-outbox.md
 docs/concepts/redis-streams-and-pubsub.md
 docs/concepts/state-based-vs-delta-handlers.md
 docs/concepts/retries-backoff-and-dead-letters.md

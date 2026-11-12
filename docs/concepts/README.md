@@ -92,8 +92,9 @@ flowchart TB
 
 ## Pages
 
-Written so far (2026-11-12): the first four data and concurrency pages, plus [lab.md](lab.md).
-The other pages are planned for the next batches; until then, their links don't resolve yet.
+Written so far (2026-11-12): the data and concurrency group, plus state-machines,
+delivery-guarantees and transactional-outbox, and [lab.md](lab.md). The other pages are
+planned for the next batches; until then, their links don't resolve yet.
 
 | Group | Page | Covers |
 |---|---|---|
