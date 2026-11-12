@@ -9,7 +9,17 @@
 #   make e2e                       all specs        make e2e ARGS="e2e/shop.spec.ts"
 #   KEEP_E2E=1 make e2e            leave the stack up (frontend on http://localhost:3101)
 #   make e2e-down                  remove a kept stack
+#   make lab-up                    (E2E_MODE=lab) the same guarded start + seed, no Playwright,
+#                                  left up for the docs/concepts exercises; make lab-down removes it
 set -u
+
+MODE="${E2E_MODE:-test}"
+case "$MODE" in
+  test|lab) ;;
+  *) echo "e2e: unknown E2E_MODE '$MODE' (expected test or lab)." >&2; exit 2 ;;
+esac
+KEEP="${KEEP_E2E:-}"
+[ "$MODE" = "lab" ] && KEEP=1
 
 PROJECT="${E2E_PROJECT:-ecommerce-e2e}"
 EXPECTED_PROJECT="ecommerce-e2e"
@@ -25,7 +35,7 @@ if [ "$PROJECT" != "$EXPECTED_PROJECT" ]; then
 fi
 
 FILES="-f docker-compose.yml -f docker-compose.e2e.yml"
-if [ "${KEEP_E2E:-}" = "1" ]; then
+if [ "$KEEP" = "1" ]; then
   FILES="$FILES -f docker-compose.e2e-keep.yml"
 fi
 dc() { docker compose -p "$PROJECT" $FILES "$@"; }
@@ -52,17 +62,28 @@ release_lock() { [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"; 
 # version of this script. Don't tear it down from here.
 if [ -n "$(docker ps -q --filter "label=com.docker.compose.project=$PROJECT")" ]; then
   release_lock
-  refuse "containers of the $PROJECT project are already running (a kept stack, or another run). Remove them with 'make e2e-down' first."
+  refuse "containers of the $PROJECT project are already running (a kept or lab stack, or another run). Remove them with 'make e2e-down' (or 'make lab-down') first."
 fi
 
 started=$(date +%s)
 phase() { echo "e2e: [$(( $(date +%s) - started ))s] $*"; }
 
+# Set to 1 only once setup is complete: every guard passed, migrate + seed + warm succeeded.
+# A stack is kept (KEEP_E2E=1, or lab mode) only then. A failed guard means a service may be
+# pointed at the wrong database, where relay, consumers and beat would keep writing: always tear
+# down.
+SETUP_OK=0
+
 cleanup() {
   rc=$?
-  if [ "${KEEP_E2E:-}" = "1" ]; then
+  if [ "$SETUP_OK" = "1" ] && [ "$MODE" = "lab" ] && [ "$rc" -eq 0 ]; then
+    phase "lab stack up: site http://localhost:3101, Mailpit http://localhost:8125 (make lab-down removes it)"
+    echo "  shell:  alias lab='docker compose -p $PROJECT $FILES'   (from the repo root; see docs/concepts/lab.md)"
+  elif [ "$SETUP_OK" = "1" ] && [ "$MODE" = "test" ] && [ "$KEEP" = "1" ]; then
+    # Setup passed; Playwright may have failed: keeping the stack is the point of KEEP_E2E
     phase "KEEP_E2E=1: stack left running at http://localhost:3101 (make e2e-down removes it)"
   else
+    [ "$KEEP" = "1" ] && [ "$SETUP_OK" != "1" ] && phase "setup or a guard failed: not keeping the stack"
     phase "tearing down the e2e stack"
     dc --profile e2e down --remove-orphans >/dev/null 2>&1
   fi
@@ -77,7 +98,10 @@ fail() { echo "e2e: ABORT: $*" >&2; exit 3; }
 
 # Guard 1 (static, before any container starts): what every Django service would be given
 phase "static check of the merged compose config"
-dc config --format json | python3 -c '
+# Captured first: in `dc config | python3`, a failing `dc config` would only show up as a JSON
+# error (sh has no pipefail; a pipeline's status is its last command's)
+config_json=$(dc config --format json) || fail "docker compose config failed"
+printf '%s' "$config_json" | python3 -c '
 import json, sys
 expected_db, services = sys.argv[1], sys.argv[2].split()
 config = json.load(sys.stdin)["services"]
@@ -105,7 +129,7 @@ db_ip() {
 live_guard() {
   service=$1
   expected_ip=$(db_ip)
-  line=$(dc exec -T "$service" python manage.py shell -c '
+  out=$(dc exec -T "$service" python manage.py shell -c '
 from django.conf import settings
 from django.db import connection
 cfg = settings.DATABASES["default"]
@@ -113,7 +137,8 @@ with connection.cursor() as c:
     c.execute("SELECT current_database(), host(inet_server_addr())")
     current, addr = c.fetchone()
 print(cfg["NAME"], cfg["HOST"], current, addr)
-' 2>/dev/null | tail -1)
+' 2>/dev/null) || fail "$service: the live database check could not run"
+  line=$(printf '%s\n' "$out" | tail -1)
   set -- $line
   name=${1:-?} host=${2:-?} current=${3:-?} addr=${4:-?}
   if [ "$name" = "$EXPECTED_DB" ] && [ "$host" = "db" ] && [ "$current" = "$EXPECTED_DB" ] && [ "$addr" = "$expected_ip" ]; then
@@ -136,7 +161,15 @@ done
 
 phase "migrate + seed (small) in the e2e database"
 dc exec -T backend python manage.py migrate --noinput >/dev/null || fail "migrate failed"
-dc exec -T backend python manage.py import_olist --size small | tail -2 || fail "import failed"
+# The import's own exit status decides (in `import_olist | tail -2`, it would be tail's)
+import_log=$(mktemp)
+if ! dc exec -T backend python manage.py import_olist --size small > "$import_log" 2>&1; then
+  tail -20 "$import_log" >&2
+  rm -f "$import_log"
+  fail "import failed"
+fi
+tail -2 "$import_log"
+rm -f "$import_log"
 dc exec -T backend python manage.py seed_dev_users >/dev/null || fail "seed_dev_users failed"
 dc exec -T backend python manage.py backfill_analytics >/dev/null || fail "backfill_analytics failed"
 
@@ -177,6 +210,11 @@ for path in paths:
     else:
         raise SystemExit(f"could not warm {path}")
 ' || fail "warming the routes failed"
+SETUP_OK=1
+
+if [ "$MODE" = "lab" ]; then
+  exit 0  # cleanup keeps the stack (rc 0) and releases the run lock
+fi
 
 phase "running Playwright"
 status=0

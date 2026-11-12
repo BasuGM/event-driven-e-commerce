@@ -109,8 +109,9 @@ with other local services; containers always talk to each other on the default p
 | `make test-backend`  | Run only the backend tests (pytest)                    |
 | `make test-frontend` | Run only the frontend tests (Vitest)                   |
 | `make typecheck`  | `tsc --noEmit` inside the frontend container              |
-| `make e2e`        | Playwright smoke tests on an **isolated** stack (compose project `ecommerce-e2e`, own DB `ecommerce_e2e` on tmpfs, Redis, Mailpit; seeded fresh, torn down after). Never touches the dev DB. One run at a time (lock `e2e-results/.e2e-lock`; refuses while another run or a kept stack is up). Traces/videos/HTML report and, on failure, frontend/backend/stream logs land in `e2e-results/` (gitignored). `ARGS="e2e/shop.spec.ts"` (Playwright args pass through, e.g. `--repeat-each 3`); `KEEP_E2E=1` leaves it up on http://localhost:3101 |
+| `make e2e`        | Playwright smoke tests on an **isolated** stack (compose project `ecommerce-e2e`, own DB `ecommerce_e2e` on tmpfs, Redis, Mailpit; seeded fresh, torn down after). Never touches the dev DB. One run at a time (lock `e2e-results/.e2e-lock`; refuses while another run or a kept stack is up). Traces/videos/HTML report and, on failure, frontend/backend/stream logs land in `e2e-results/` (gitignored). `ARGS="e2e/shop.spec.ts"` (Playwright args pass through, e.g. `--repeat-each 3`); `KEEP_E2E=1` leaves it up on http://localhost:3101, only if setup and every guard passed (a guard or setup failure always tears down) |
 | `make e2e-down`   | Remove a kept e2e stack (`KEEP_E2E=1`)                    |
+| `make lab-up` / `make lab-down` | The isolated e2e stack for the `docs/concepts/` exercises: same guards and run lock as `make e2e`, seeded fresh, no Playwright, left up (site http://localhost:3101, Mailpit http://localhost:8125; db/Redis via `docker compose exec`, alias in `docs/concepts/lab.md`). A failed start tears down. `lab-down` = `e2e-down` |
 | `make types`      | Regenerate OpenAPI schema and the TS client               |
 | `make migrate`    | Apply migrations                                          |
 | `make backfill-sales` | Recount `sales_count` without canceled/unavailable orders (one-off, re-runnable) |
@@ -119,7 +120,7 @@ with other local services; containers always talk to each other on the default p
 | `make analytics-backfill` | Rebuild the analytics projections from orders (also run by `make seed`) |
 | `make replay`     | Replay imported orders as live events (default Black Friday week 2017, `--speed 10`; `ARGS="--from … --to … --speed … --limit … --dry-run"`) |
 | `make replay-reset` | Delete replayed orders and everything they produced (`ARGS="--run N"`) |
-| `make docs-check` | Check README.md + docs/: links, anchors, images and code references resolve (pending docs listed in `scripts/docs_pending.txt`) |
+| `make docs-check` | Check README.md + docs/: links, anchors, images and code references resolve (pending docs listed in `scripts/docs_pending.txt`; in `docs/concepts/` only, external names such as Postgres settings may be backticked if listed in `scripts/docs_external_names.txt`) |
 
 `make up` also starts the Celery `worker` and `beat` services (see their logs with
 `docker compose logs -f worker beat`), the event `relay` and `consumers` services and the

@@ -134,7 +134,10 @@ Each run:
 5. **Migrate and seed fresh:** the small Olist import, the dev users, the analytics backfill.
 6. **Warm** every route the specs enter, then run Playwright.
 7. **Tear down** (the tmpfs database and Redis disappear), and exit with Playwright's exit code.
-   - `KEEP_E2E=1` keeps the stack, with its frontend on http://localhost:3101.
+   - `KEEP_E2E=1` keeps the stack, with its frontend on http://localhost:3101, but only once setup
+     and every guard have passed: a failed guard or setup step always tears it down.
+   - `make lab-up` starts the same guarded, seeded stack without Playwright, for the
+     [concept exercises](concepts/lab.md).
    - `make e2e-down` removes a kept stack.
    - `ARGS="e2e/shop.spec.ts"` runs one spec. Playwright arguments pass through, for example
      `ARGS="--repeat-each 3"`.

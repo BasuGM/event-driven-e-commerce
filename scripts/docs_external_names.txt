@@ -1,0 +1,38 @@
+# Names the docs/concepts/ tutorials may put in `backticks` although this repo doesn't define
+# them: they belong to Postgres, Redis, Django, Next.js/React or the browser. scripts/docs_check.py
+# accepts them in docs/concepts/ only (elsewhere a backticked name must exist in the code), and
+# never treats this file as code. One name per line; a trailing "()" in the docs is ignored.
+# Add a name when a page explains it; keep the groups sorted.
+#
+# Only names the checker would otherwise test need to be here: snake_case, CamelCase, UPPER_SNAKE,
+# name() and dotted.names. SQL keywords and Redis commands (`SKIP LOCKED`, `XAUTOCLAIM`) and
+# lowerCamel browser APIs (`getRandomValues`) match none of those patterns and are never checked.
+
+# PostgreSQL settings
+deadlock_timeout
+default_transaction_isolation
+default_transaction_read_only
+idle_in_transaction_session_timeout
+lock_timeout
+transaction_isolation
+
+# PostgreSQL system catalogs and views
+pg_constraint
+pg_indexes
+pg_locks
+pg_stat_activity
+
+# PostgreSQL functions
+generate_series
+nextval
+pg_blocking_pids
+pg_get_constraintdef
+
+# Django APIs (when the fully qualified django.… form would be unreadable)
+DB_CASCADE
+DB_SET_DEFAULT
+DB_SET_NULL
+ProtectedError
+RestrictedError
+TransactionManagementError
+full_clean

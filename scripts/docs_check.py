@@ -9,6 +9,10 @@
    (`django.middleware.csrf.rotate_token()`) and are not checked. Anything else in backticks (values, URLs, SQL,
    header names, placeholders like <id>) is not checked.
 
+   In docs/concepts/ only, names listed in scripts/docs_external_names.txt (Postgres settings
+   and catalogs, SQL functions, framework and browser APIs: things the tutorials explain but
+   this repo doesn't define) are accepted too. The list is not part of the code index.
+
 Links to documents that a later batch will write are listed in scripts/docs_pending.txt. They
 are reported as pending, not failures. Fenced code blocks (including Mermaid) are skipped.
 Exit status 1 if anything fails.
@@ -22,6 +26,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PENDING_FILE = ROOT / "scripts" / "docs_pending.txt"
+EXTERNAL_FILE = ROOT / "scripts" / "docs_external_names.txt"
+EXTERNAL_SCOPE = "docs/concepts/"  # the only docs where external names are accepted
 
 # Where code identifiers may be defined or used
 CODE_DIRS = ["backend/apps", "backend/config", "backend/tests", "frontend/src", "frontend/e2e", "scripts"]
@@ -101,6 +107,8 @@ def code_index() -> tuple[set[str], list[str]]:
                 continue
             if p.is_file():
                 paths.append(p.relative_to(ROOT).as_posix())
+                if p == EXTERNAL_FILE:  # its names must not count as "defined in the repo"
+                    continue
                 if p.suffix in CODE_SUFFIXES:
                     files.append(p)
     for p in files:
@@ -157,6 +165,9 @@ def main() -> int:
     pending = set()
     if PENDING_FILE.exists():
         pending = {line.strip() for line in PENDING_FILE.read_text().splitlines() if line.strip() and not line.startswith("#")}
+    external = set()
+    if EXTERNAL_FILE.exists():
+        external = {line.split("#", 1)[0].strip() for line in EXTERNAL_FILE.read_text().splitlines()} - {""}
     words, paths = code_index()
     targets = make_targets()
     anchor_cache: dict[Path, set[str]] = {}
@@ -191,8 +202,10 @@ def main() -> int:
                     failures.append(f"{where}: no heading for #{anchor} in {dest.relative_to(ROOT).as_posix()}")
             # Inline code outside link texts
             for token in INLINE_CODE.findall(LINK.sub("", line)):
-                reason = check_reference(token, words, paths, targets)
                 counts["code refs"] += 1
+                if rel_doc.startswith(EXTERNAL_SCOPE) and token.strip().removesuffix("()") in external:
+                    continue
+                reason = check_reference(token, words, paths, targets)
                 if reason:
                     failures.append(f"{where}: `{token}`: {reason}")
 

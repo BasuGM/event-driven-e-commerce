@@ -7,7 +7,7 @@ DB := $(COMPOSE) exec -T db
 -include .env
 export
 
-.PHONY: require-env up down reset migrate seed seed-large snapshot restore test test-backend test-frontend typecheck e2e types backfill-sales events-logs mail analytics-backfill replay replay-reset docs-check e2e-down
+.PHONY: require-env up down reset migrate seed seed-large snapshot restore test test-backend test-frontend typecheck e2e types backfill-sales events-logs mail analytics-backfill replay replay-reset docs-check e2e-down lab-up lab-down
 
 require-env:
 	@test -f .env || { echo "Missing .env. Run: cp .env.example .env"; exit 1; }
@@ -78,7 +78,6 @@ test-frontend: require-env
 typecheck: require-env
 	$(FRONTEND) npx tsc --noEmit
 
-# Playwright smoke test against the running, seeded stack (make up && make reset first)
 # Playwright against an isolated, freshly seeded stack (compose project ecommerce-e2e; never the
 # dev DB). ARGS="e2e/shop.spec.ts" runs one spec; KEEP_E2E=1 leaves it up on localhost:3101.
 e2e: require-env
@@ -86,6 +85,13 @@ e2e: require-env
 
 e2e-down: require-env
 	docker compose -p ecommerce-e2e -f docker-compose.yml -f docker-compose.e2e.yml --profile e2e down --remove-orphans
+
+# The same isolated stack with the same guards, seeded, without Playwright, left up for the
+# docs/concepts exercises: site on localhost:3101, Mailpit on localhost:8125 (docs/concepts/lab.md)
+lab-up: require-env
+	E2E_MODE=lab sh scripts/e2e.sh
+
+lab-down: e2e-down
 
 # One-off: recount sales_count without canceled/unavailable orders (safe to re-run)
 backfill-sales: require-env
