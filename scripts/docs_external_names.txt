@@ -1,7 +1,8 @@
-# Names the docs/concepts/ tutorials may put in `backticks` although this repo doesn't define
-# them: they belong to Postgres, Redis, Django, Next.js/React or the browser. scripts/docs_check.py
-# accepts them in docs/concepts/ only (elsewhere a backticked name must exist in the code), and
-# never treats this file as code. One name per line; a trailing "()" in the docs is ignored.
+# Names the docs/concepts/ tutorials and the docs/stack/ quick references may put in `backticks`
+# although this repo doesn't define them: they belong to Postgres, Redis, Django, Next.js/React or
+# the browser. scripts/docs_check.py accepts them in docs/concepts/ and docs/stack/ only (elsewhere
+# a backticked name must exist in the code), and never treats this file as code. One name per line;
+# a trailing "()" in the docs is ignored.
 # Add a name when a page explains it; keep the groups sorted.
 #
 # Only names the checker would otherwise test need to be here: snake_case, CamelCase, UPPER_SNAKE,
@@ -53,3 +54,18 @@ ProtectedError
 RestrictedError
 TransactionManagementError
 full_clean
+
+# docs/stack/ "Not used here" lists: features and libraries this repo does not use
+OpenApiExample
+autoretry_for
+factory_boy
+filter_backends
+lru_cache
+model_bakery
+pg_trgm
+post_save
+retry_backoff
+self.assertEqual
+TypedDict
+contextlib.contextmanager
+unittest.TestCase

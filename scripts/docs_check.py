@@ -9,8 +9,8 @@
    (`django.middleware.csrf.rotate_token()`) and are not checked. Anything else in backticks (values, URLs, SQL,
    header names, placeholders like <id>) is not checked.
 
-   In docs/concepts/ only, names listed in scripts/docs_external_names.txt (Postgres settings
-   and catalogs, SQL functions, framework and browser APIs: things the tutorials explain but
+   In docs/concepts/ and docs/stack/ only, names listed in scripts/docs_external_names.txt (Postgres settings
+   and catalogs, SQL functions, framework and browser APIs: things the docs explain but
    this repo doesn't define) are accepted too. The list is not part of the code index.
 
 Links to documents that a later batch will write are listed in scripts/docs_pending.txt. They
@@ -27,7 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PENDING_FILE = ROOT / "scripts" / "docs_pending.txt"
 EXTERNAL_FILE = ROOT / "scripts" / "docs_external_names.txt"
-EXTERNAL_SCOPE = "docs/concepts/"  # the only docs where external names are accepted
+EXTERNAL_SCOPE = ("docs/concepts/", "docs/stack/")  # the only docs where external names are accepted
 
 # Where code identifiers may be defined or used
 CODE_DIRS = ["backend/apps", "backend/config", "backend/tests", "frontend/src", "frontend/e2e", "scripts"]
