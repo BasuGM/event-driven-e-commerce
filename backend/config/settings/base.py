@@ -3,6 +3,8 @@
 import os
 from pathlib import Path
 
+from celery.schedules import crontab
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 
@@ -189,14 +191,13 @@ FRONTEND_PUBLIC_URL = os.environ.get("FRONTEND_PUBLIC_URL", "http://localhost:30
 CELERY_BROKER_URL = REDIS_URL
 CELERY_TASK_IGNORE_RESULT = True
 CELERY_TIMEZONE = "UTC"
+# Frequent tasks run on intervals. Daily ones run at a fixed time (crontab, CELERY_TIMEZONE):
+# a 24 h *interval* counts from beat's start, so a beat restarted more often than daily would
+# never run them. Beat's own state (last run times) lives on a volume (docker-compose.yml).
 CELERY_BEAT_SCHEDULE = {
     "release-expired-reservations": {
         "task": "apps.orders.tasks.release_expired_reservations",
         "schedule": 60.0,
-    },
-    "purge-expired-idempotency-keys": {
-        "task": "apps.core.tasks.purge_expired_idempotency_keys",
-        "schedule": 60.0 * 60 * 24,
     },
     "send-due-notifications": {
         "task": "apps.notifications.tasks.send_due_notifications",
@@ -204,7 +205,11 @@ CELERY_BEAT_SCHEDULE = {
     },
     "purge-old-events": {
         "task": "apps.events.tasks.purge_old_events",
-        "schedule": 60.0 * 60 * 24,
+        "schedule": crontab(hour=3, minute=0),
+    },
+    "purge-expired-idempotency-keys": {
+        "task": "apps.core.tasks.purge_expired_idempotency_keys",
+        "schedule": crontab(hour=3, minute=15),
     },
 }
 

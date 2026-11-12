@@ -116,12 +116,18 @@ flowchart TB
 
 The beat schedule, from [config/settings/base.py](../backend/config/settings/base.py):
 
-| Task | Every | Purpose |
+| Task | When | Purpose |
 |---|---|---|
-| `release_expired_reservations` | 60 s | Cancel unpaid orders whose stock hold expired, and return the stock |
-| `send_due_notifications` | 30 s | Send pending emails that are due: retries after backoff, and any whose enqueue was lost |
-| `purge_expired_idempotency_keys` | 24 h | Delete expired idempotency keys (they live 24 h) |
-| `purge_old_events` | 24 h | Delete published outbox rows after 7 days, and EventLog + ProcessedEvent after 90 days |
+| `release_expired_reservations` | Every 60 s | Cancel unpaid orders whose stock hold expired, and return the stock |
+| `send_due_notifications` | Every 30 s | Send pending emails that are due: retries after backoff, and any whose enqueue was lost |
+| `purge_old_events` | Daily at 03:00 UTC | Delete published outbox rows after 7 days, and EventLog + ProcessedEvent after 90 days |
+| `purge_expired_idempotency_keys` | Daily at 03:15 UTC | Delete expired idempotency keys (they live 24 h) |
+
+The daily tasks are crontab schedules at a fixed time, not 24 h intervals, because an interval
+counts from beat's start: a beat restarted more often than once a day would never run them. Beat
+keeps its state (each task's last run) on the `beatstate` volume, so recreating the container
+doesn't reset it, and a run missed while beat was down happens once, when beat starts again
+(checked with Celery 5.6.3 on 2026-11-12). The isolated e2e/lab stack keeps beat's state on tmpfs.
 
 ## Request paths
 

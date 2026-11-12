@@ -279,7 +279,9 @@ Under the hood: `python manage.py import_olist --size small|large [--data-dir DI
   Payment start needs no key: the partial unique index `uniq_open_intent_per_order` allows one
   open `PaymentIntent` per order, so a repeated click reuses it.
 - Celery: `release_expired_reservations` every minute (each order in its own transaction,
-  `SKIP LOCKED`, idempotent) and a daily idempotency-key purge.
+  `SKIP LOCKED`, idempotent) and a daily idempotency-key purge. Daily tasks are crontabs at a
+  fixed UTC time (never 24 h intervals, which restart with beat); beat's state lives on the
+  `beatstate` volume (`-s /var/lib/celerybeat/schedule`).
 - `ALLOW_FAKE_PAYMENTS` (dev/test only) enables the fake payment provider (hosted page, webhook
   delivery). Payment state changes only arrive through the webhook (see "Payments").
 - Order items are stored one row per unit (like Olist); APIs group them into lines.

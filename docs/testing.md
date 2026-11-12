@@ -116,7 +116,7 @@ docker compose -p ecommerce-e2e -f docker-compose.yml -f docker-compose.e2e.yml 
 
 [docker-compose.e2e.yml](../docker-compose.e2e.yml) gives the e2e project:
 - the database `ecommerce_e2e`, **on tmpfs** (no named volume);
-- Redis without persistence, and its own Mailpit;
+- Redis without persistence, its own Mailpit, and beat's schedule state on tmpfs;
 - **no host ports**.
 
 Each run:

@@ -35,6 +35,11 @@ services:
     environment: *e2e-django-env
   beat:
     environment: *e2e-django-env
+    # No persistent schedule state either: the dev stack's beatstate volume isn't used here
+    volumes: !override
+      - ./backend:/app
+    tmpfs:
+      - /var/lib/celerybeat
   stream:
     environment: *e2e-django-env
   relay:

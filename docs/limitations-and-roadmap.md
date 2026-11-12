@@ -29,6 +29,7 @@ ideas, not commitments.
 | No paid cancellation for app orders | Once paid, an app order can't be canceled or marked unavailable | `cancel_paid` and `mark_unavailable` exist, but refuse non-replay orders | Refund + restock design (and a seller/ops UI for fulfilment) |
 | A declined payment cancels the order | A mistyped card means checking out again | Checkout is quick, and the stock is released at once | Allow retrying the same intent within the hold (as Stripe does) |
 | A crash after SMTP accepted an email, before the row was marked sent | That email is sent a second time | A deterministic `Message-ID` lets clients spot the duplicate | — (no SMTP-side idempotency available) |
+| The fake provider's webhook delivery has no sweep (fake provider only) | Celery acknowledges a task right before running it (the default), so a `deliver_event` task lost with a crashed worker is never re-sent: the merchant never receives that webhook, and the order isn't updated by it | Retries cover a merchant that answers with an error (up to 6, with backoff); a real provider retries on its own schedule | — (dev/test only; a real gateway needs none) |
 | Fulfilment (invoice, ship, deliver) is driven only by the replay | App orders stop at `approved` | — | A seller or ops workflow calling the existing services |
 
 ### Data, search and replay

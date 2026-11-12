@@ -202,7 +202,7 @@ The behaviour comes from `run_idempotent` in
   "out of stock" runs again.
 - **Concurrent duplicates.** The second request blocks on the unique index until the first
   commits, then replays its response.
-- **Expiry.** Keys expire after 24 h (`IDEMPOTENCY_KEY_TTL_HOURS`). A daily task purges them.
+- **Expiry.** Keys expire after 24 h (`IDEMPOTENCY_KEY_TTL_HOURS`). A daily task (03:15 UTC) purges them.
 
 Starting a payment needs no key: a partial unique index allows one open `PaymentIntent` per
 order, so a repeated click reuses it ([data-model.md](data-model.md#constraints-that-carry-business-rules)).

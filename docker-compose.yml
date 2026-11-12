@@ -60,10 +60,12 @@ services:
   beat:
     build: ./backend
     env_file: .env
-    # Schedule state in /tmp so beat never writes into the bind-mounted source tree
-    command: celery -A config beat -l info -s /tmp/celerybeat-schedule
+    # Schedule state (last run times) on its own volume: outside the bind-mounted source tree,
+    # and kept when the container is recreated
+    command: celery -A config beat -l info -s /var/lib/celerybeat/schedule
     volumes:
       - ./backend:/app
+      - beatstate:/var/lib/celerybeat
     depends_on:
       db:
         condition: service_healthy
@@ -163,6 +165,7 @@ services:
 volumes:
   pgdata:
   redisdata:
+  beatstate:
   e2e_node_modules:
   frontend_node_modules:
   frontend_next:
