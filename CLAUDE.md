@@ -79,14 +79,17 @@ frontend/src/
   lib/use-hydrated.ts  false until hydrated: JS-driven controls stay disabled until then
   lib/shop-params.ts  URL search params <-> shop filters (the only translation layer)
 frontend/e2e/       Playwright smoke tests (run.sh is the e2e container entry point)
-docs/           Human docs: architecture, data model, API, flows/, adr/, operations/ (README links in)
+frontend/screenshots/  README screenshot generator (own Playwright config; `make e2e` never runs it)
+docs/           Human docs: architecture, data model, API, flows/, adr/, concepts/, stack/, operations/
+                (README.md links to every one; docs/images/ = README screenshots from `make screenshots`)
 scripts/        docs_check.py (make docs-check)
 data/olist/     Raw Olist CSVs, directly in this folder (gitignored, never committed)
 data/snapshots/ Postgres dumps of a seeded DB (gitignored)
 docker-compose.yml
 Makefile
 CLAUDE.md
-README.md       Setup guide for a fresh clone
+README.md       Landing page: pitch, screenshot gallery, highlights, architecture, quick start, docs map
+                (the long how-to is docs/operations/runbook.md)
 ```
 
 Configuration lives in `.env` (copy `.env.example`; every `make` target refuses to run without it). Host ports are configurable
@@ -120,6 +123,7 @@ with other local services; containers always talk to each other on the default p
 | `make analytics-backfill` | Rebuild the analytics projections from orders (also run by `make seed`) |
 | `make replay`     | Replay imported orders as live events (default Black Friday week 2017, `--speed 10`; `ARGS="--from … --to … --speed … --limit … --dry-run"`) |
 | `make replay-reset` | Delete replayed orders and everything they produced (`ARGS="--run N"`) |
+| `make screenshots` | Regenerate `docs/images/*.png` (README gallery): Playwright in the Playwright image against the **lab stack only** — refuses unless `make lab-up` is up and every Django service is on `ecommerce_e2e`; places orders, pays on the fake provider (30 s delayed webhook), runs a short replay there (never the dev stack), then optimises the PNGs with pngquant in a throwaway container. ~5 min. Raw shots + failure output in `e2e-results/` |
 | `make docs-check` | Check README.md + docs/: links, anchors, images and code references resolve (pending docs listed in `scripts/docs_pending.txt`; in `docs/concepts/` only, external names such as Postgres settings may be backticked if listed in `scripts/docs_external_names.txt`) |
 
 `make up` also starts the Celery `worker` and `beat` services (see their logs with

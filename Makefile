@@ -7,7 +7,7 @@ DB := $(COMPOSE) exec -T db
 -include .env
 export
 
-.PHONY: require-env up down reset migrate seed seed-large snapshot restore test test-backend test-frontend typecheck e2e types backfill-sales events-logs mail analytics-backfill replay replay-reset docs-check e2e-down lab-up lab-down
+.PHONY: require-env up down reset migrate seed seed-large snapshot restore test test-backend test-frontend typecheck e2e types backfill-sales events-logs mail analytics-backfill replay replay-reset docs-check e2e-down lab-up lab-down screenshots
 
 require-env:
 	@test -f .env || { echo "Missing .env. Run: cp .env.example .env"; exit 1; }
@@ -92,6 +92,12 @@ lab-up: require-env
 	E2E_MODE=lab sh scripts/e2e.sh
 
 lab-down: e2e-down
+
+# README screenshots (docs/images/): Playwright against the running lab stack ONLY (refuses unless
+# `make lab-up` is up); creates orders, payments and a replay there. Output is optimised with
+# pngquant in a throwaway container.
+screenshots: require-env
+	sh scripts/screenshots.sh
 
 # One-off: recount sales_count without canceled/unavailable orders (safe to re-run)
 backfill-sales: require-env

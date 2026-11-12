@@ -162,6 +162,26 @@ services:
     depends_on:
       - frontend
 
+  # README screenshots: `make screenshots` (scripts/screenshots.sh). Lab stack only: it needs the
+  # ecommerce-e2e project up (make lab-up) and writes raw PNGs to e2e-results/screenshots-raw/.
+  screenshots:
+    image: mcr.microsoft.com/playwright:v1.63.0-noble
+    profiles: ["screenshots"]
+    working_dir: /app
+    environment:
+      BASE_URL: http://frontend:3000
+      CI: "1"
+      E2E_USER_PASSWORD: ${DEV_USER_PASSWORD:-devpass123}
+      MAILPIT_URL: http://mailpit:8025
+      SHOTS_DIR: /shots
+      PLAYWRIGHT_OUTPUT_DIR: /e2e-results/screenshots-test-results
+    command: ["sh", "screenshots/run.sh"]
+    volumes:
+      - ./frontend:/app
+      - e2e_node_modules:/app/node_modules
+      - ./e2e-results:/e2e-results
+      - ./e2e-results/screenshots-raw:/shots
+
 volumes:
   pgdata:
   redisdata:

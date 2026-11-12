@@ -6,7 +6,8 @@ table. This page is task-oriented: what to run, what to look at, and what is saf
 ## First run
 
 1. **Prerequisites:** Docker with Compose v2 (the e2e stack uses `!reset` overrides, which need a
-   recent Compose; tested with v5.5.1), `make`, and `python3` for `make docs-check`.
+   recent Compose; tested with v5.5.1), `make`, and `python3` for `make docs-check`. Node.js 22+ is only needed to run frontend tooling
+   outside the containers.
 2. **Data:** download the "Brazilian E-Commerce Public Dataset by Olist" from
    [Kaggle](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce). Unzip it, and put the
    CSVs **directly** in `data/olist/` (the folder is gitignored). The importer fails with a list
@@ -32,6 +33,83 @@ Then open the site at `http://localhost:<FRONTEND_HOST_PORT>`, the API docs at
 - `customer@example.com`;
 - `replay@example.com` (owns replayed orders).
 
+**URLs** (default ports):
+
+| What | URL |
+|---|---|
+| Dashboard | http://localhost:3000 |
+| Shop | http://localhost:3000/shop |
+| API docs (Swagger) | http://localhost:8000/api/docs/ |
+| Django admin | http://localhost:8000/admin/ (accepts the username, `admin`) |
+| Mailpit (every email the app sends) | http://localhost:8025 (`make mail` prints it) |
+
+`make seed-large` imports the full dataset instead of the small subset (about a minute). Olist
+has no product names, prices or stock, so the import generates them deterministically
+([flows/olist-import.md](../flows/olist-import.md)).
+
+## Things to try
+
+### Buy something
+
+Log in as `customer@example.com`, open a product, **Add to cart** on an offer, then **Cart →
+Checkout**. Placing the order holds the stock for 15 minutes (`RESERVATION_TTL_MINUTES`). On the
+order page click **Pay**: you land on **FakePay**, a dev-only payment page that behaves like
+Stripe Checkout (`ALLOW_FAKE_PAYMENTS`). Choose succeed, fail or "succeed after a delay", and
+optionally have each webhook delivered twice or out of order. You're sent back to the order,
+which shows "Payment in progress" and updates live (Server-Sent Events) when the signed webhook
+arrives via the Celery `worker`, without polling or reloading. If you don't pay, the `beat` +
+`worker` services cancel the order and return the stock within a minute of expiry. Each step
+sends an email, caught by Mailpit.
+
+### Staff tools
+
+Log in as `staff@example.com` and use the **Staff** link: the event log (every domain event,
+filterable), per-order event timelines with consumer status, event health (consumer lag, outbox
+backlog, dead letters with a Retry button), and the **Analytics** dashboard (orders, GMV,
+cancellations, delivery performance) per source: imported Olist history, orders placed in the
+app, or replayed ones ([flows/staff-tools.md](../flows/staff-tools.md),
+[flows/analytics.md](../flows/analytics.md)).
+
+### Watch the events
+
+Every order change (placed, paid, payment failed, canceled, expired) writes an event to the
+outbox in the same transaction; the `relay` service publishes it to Redis Streams and the
+`consumers` service reacts: it updates the product's sales count, tells Next.js to refresh the
+cached product page, sends the email, and so on. Follow it with `make events-logs`; the
+dashboard's health badges show the outbox backlog ([flows/event-pipeline.md](../flows/event-pipeline.md)).
+
+### Replay history as live events
+
+Replays imported Olist orders through the real order lifecycle (placed, paid, invoiced, shipped,
+delivered, or canceled / unavailable) on a simulated clock ([flows/replay.md](../flows/replay.md)):
+
+1. `make replay` replays Black Friday week 2017 (85 orders, ~420 events) at 10 s per simulated
+   day; quiet gaps wait at most 2 s, so it takes about 3-4 minutes. Pick your own range with
+   `make replay ARGS="--from 2018-01-01 --to 2018-01-07 --speed 2"` (`--limit N`, `--speed 0` =
+   no waiting, `--dry-run` = print the plan only).
+2. As `staff@example.com`, watch **Staff → Events** (filter e.g. `OrderShipped`), **Health**
+   (consumer lag) and **Analytics** (source: Replayed).
+3. Log in as `replay@example.com`, open one of its orders and watch it move live. Replayed
+   orders are read-only: no Pay or Cancel.
+4. `make replay-reset` deletes every replayed order and everything it produced (events, event
+   log, analytics rows). `ARGS="--run N"` removes one run only.
+
+Ctrl-C stops after the current step; running the same range again resumes. One replay runs at a
+time; if a replay's process died (no progress for 5 minutes), the next `make replay` or
+`make replay-reset` takes over automatically (`make replay-reset ARGS=--force` is the last
+resort). The shop is unaffected: no stock moves, and sales counts, prices and emails ignore
+replayed orders.
+
+### Regenerate the README screenshots
+
+`make lab-up`, then `make screenshots`, then `make lab-down`. The script
+([frontend/screenshots/](../../frontend/screenshots/readme.shots.ts), run by
+[scripts/screenshots.sh](../../scripts/screenshots.sh)) refuses to run unless the lab stack is
+up and every Django service in it is connected to `ecommerce_e2e`. It places orders, pays one on
+the fake provider's page (webhook delayed 30 s, so it can capture "payment in progress" and then
+"approved"), runs a short replay, and writes the PNGs to [docs/images/](../images/), optimised
+with pngquant in a throwaway container. Allow about 5 minutes. It never touches the dev stack.
+
 ## Daily use
 
 | Task | Command |
@@ -43,6 +121,7 @@ Then open the site at `http://localhost:<FRONTEND_HOST_PORT>`, the API docs at
 | Regenerate API types after a serializer change | `make types` |
 | Run the tests | `make test` (backend + frontend + typecheck), `make e2e` (isolated stack, see [testing.md](../testing.md)) |
 | Check the docs | `make docs-check` |
+| Regenerate the README screenshots | `make lab-up`, `make screenshots`, `make lab-down` |
 
 ## Data safety
 
@@ -116,5 +195,5 @@ See [limitations-and-roadmap.md](../limitations-and-roadmap.md).
 
 ## Sources
 
-- [Makefile](../../Makefile), [docker-compose.yml](../../docker-compose.yml), [.env.example](../../.env.example), [scripts/e2e.sh](../../scripts/e2e.sh)
+- [Makefile](../../Makefile), [docker-compose.yml](../../docker-compose.yml), [.env.example](../../.env.example), [scripts/e2e.sh](../../scripts/e2e.sh), [scripts/screenshots.sh](../../scripts/screenshots.sh)
 - [backend/apps/core/health.py](../../backend/apps/core/health.py), [backend/apps/staff/services.py](../../backend/apps/staff/services.py), [backend/apps/events/readiness.py](../../backend/apps/events/readiness.py)
