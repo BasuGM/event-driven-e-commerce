@@ -1,12 +1,7 @@
 # Documents a later docs batch will write. Links to them are reported as "pending" by
 # scripts/docs_check.py instead of failing. Remove each line when its document lands; delete
 # this file when the docs phase is done.
-docs/concepts/redis-streams-and-pubsub.md
-docs/concepts/state-based-vs-delta-handlers.md
-docs/concepts/retries-backoff-and-dead-letters.md
-docs/concepts/money-as-decimals.md
 docs/concepts/time-zones.md
-docs/concepts/projections-and-read-models.md
 docs/concepts/full-text-search.md
 docs/concepts/sessions-and-cookies.md
 docs/concepts/csrf.md

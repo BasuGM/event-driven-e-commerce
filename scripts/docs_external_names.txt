@@ -41,6 +41,10 @@ requires_capture
 requires_confirmation
 requires_payment_method
 
+# Python standard library (decimal) and Django REST framework settings not used in this repo
+COERCE_DECIMAL_TO_STRING
+ROUND_HALF_EVEN
+
 # Django APIs (when the fully qualified django.… form would be unreadable)
 DB_CASCADE
 DB_SET_DEFAULT
